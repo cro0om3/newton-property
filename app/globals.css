@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Segoe UI", sans-serif;
+  --color-ink: #0e1a2f;
+  --color-paper: #eef2f7;
+  --color-panel: #ffffff;
+  --color-line: #d3dce8;
+  --color-pine: #071833;
+  --color-leaf: #123a86;
+  --color-sand: #e6eef8;
+  --color-clay: #1c3f73;
+  --color-muted: #5c6b80;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: #d5e0f2;
+}

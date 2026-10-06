@@ -1,0 +1,72 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { WaStatus } from "@/lib/status";
+
+export default function WhatsAppPage() {
+  const [status, setStatus] = useState<WaStatus | null>(null);
+
+  useEffect(() => {
+    let stop = false;
+    async function load() {
+      const response = await fetch("/api/whatsapp");
+      if (!response.ok || stop) return;
+      setStatus(await response.json());
+    }
+    void load();
+    const timer = setInterval(load, 2000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const state = status?.state || "offline";
+
+  return (
+    <div className="h-full min-h-0 flex-1 overflow-auto px-8 py-7">
+      <h1 className="text-3xl font-semibold tracking-tight">Link WhatsApp</h1>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+        Scan once from your phone. This computer then receives the same new messages, and OpenAI files each property.
+      </p>
+
+      <div className="mt-6 grid max-w-4xl gap-4 lg:grid-cols-[280px_1fr]">
+        <div className="grid min-h-72 place-items-center rounded-3xl border border-line bg-panel p-4">
+          {state === "qr" && status?.qrDataUrl ? (
+            <img src={status.qrDataUrl} alt="WhatsApp QR code" className="w-full" />
+          ) : (
+            <p className="px-4 text-center text-sm text-muted">
+              {state === "connected"
+                ? "Linked"
+                : state === "reconnecting"
+                  ? "Connecting..."
+                  : "Waiting for the WhatsApp service"}
+            </p>
+          )}
+        </div>
+        <div className="rounded-3xl border border-line bg-panel p-6">
+          <p className="text-sm font-medium">
+            Status: {state === "connected" ? "Connected" : state === "qr" ? "Ready to scan" : state}
+          </p>
+          {status?.phone ? <p className="mt-1 text-sm text-muted">{status.phone}</p> : null}
+          <ol className="mt-5 list-decimal space-y-2 pl-5 text-sm leading-6">
+            <li>Open WhatsApp on your phone.</li>
+            <li>Go to Settings, then Linked devices, then Link a device.</li>
+            <li>Scan the code on the left.</li>
+          </ol>
+          <p className="mt-5 text-sm leading-6 text-muted">
+            Leave this computer on and online. If it sleeps, new messages wait until it wakes. People still message your same number.
+          </p>
+          {status?.lastError ? <p className="mt-4 text-sm text-clay">{status.lastError}</p> : null}
+          {!status?.openai ? (
+            <p className="mt-4 text-sm text-clay">
+              OpenAI key is missing. Chats will still arrive. Sorting starts after you add OPENAI_API_KEY to .env and restart.
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-muted">Sorting model: {status.model}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,38 @@
+{
+  "name": "property-desk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "worker": "node --import tsx worker/index.ts",
+    "local": "concurrently -n web,whatsapp -c cyan,green \"npm run dev\" \"npm run worker\"",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.10",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "exceljs": "^4.4.0",
+    "next": "^16.3.8",
+    "openai": "^7.28.0",
+    "pdf-lib": "^1.17.1",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "unpdf": "^1.8.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.4",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "concurrently": "^10.0.5",
+    "postcss": "^8.5.29",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
