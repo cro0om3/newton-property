@@ -58,7 +58,9 @@ export type ChatRow = {
   is_group: number;
   last_message_at: number | null;
   last_preview: string | null;
+  avatar?: string | null;
   company_name?: string | null;
+  company_logo?: string | null;
   listings?: number;
 };
 
@@ -124,7 +126,16 @@ export type CardFilters = {
   status?: string;
   q?: string;
   supplierId?: string;
+  developerId?: string;
   limit?: number;
+};
+
+export type DeveloperRow = {
+  id: string;
+  name: string;
+  logo: string | null;
+  employees: number;
+  listings: number;
 };
 
 export type SupplierRow = {
@@ -133,6 +144,7 @@ export type SupplierRow = {
   phone: string | null;
   company_id: string | null;
   company_name: string | null;
+  company_logo?: string | null;
   chat_jid: string | null;
   listings: number;
 };

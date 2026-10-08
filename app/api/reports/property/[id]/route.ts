@@ -4,7 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { NextResponse } from "next/server";
 import { cardGallery, cardMessages, getCard, mediaDir } from "@/lib/db";
 import { dealFacts, propertyFacts } from "@/lib/facts";
-import { formatPrice } from "@/lib/format";
+import { applyDeskLocale, formatPrice } from "@/lib/format";
+import { getSettings } from "@/lib/settings";
 import type { CardExtra } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -17,6 +18,8 @@ export async function GET(_request: Request, context: Context) {
   const card = getCard(id);
   if (!card) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const settings = getSettings();
+  applyDeskLocale(settings);
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -26,7 +29,7 @@ export async function GET(_request: Request, context: Context) {
   const ink = rgb(0.05, 0.1, 0.18);
 
   page.drawRectangle({ x: 0, y: 782, width: 595, height: 60, color: navy });
-  page.drawText("NEWTON PROPERTY", { x: 36, y: 806, size: 16, font: bold, color: rgb(1, 1, 1) });
+  page.drawText(pdfSafe(settings.officeName).toUpperCase().slice(0, 32), { x: 36, y: 806, size: 16, font: bold, color: rgb(1, 1, 1) });
   page.drawText("Broker sheet", { x: 36, y: 790, size: 10, font, color: rgb(0.8, 0.86, 0.95) });
 
   const gallery = cardGallery(cardMessages(id));
@@ -62,7 +65,7 @@ export async function GET(_request: Request, context: Context) {
     y -= 18;
     for (const plan of plans.slice(0, 3)) {
       if (y < 80) break;
-      page.drawText(`${plan.name}  ${formatPrice(plan.discountedPrice || plan.price, "AED")}`, {
+      page.drawText(`${plan.name}  ${formatPrice(plan.discountedPrice || plan.price, card.currency)}`, {
         x: 36,
         y,
         size: 10,
@@ -73,7 +76,8 @@ export async function GET(_request: Request, context: Context) {
     }
   }
 
-  page.drawText("Newton Property  ·  Sorted from WhatsApp", {
+  const footer = [pdfSafe(settings.officeName), pdfSafe(settings.officePhone)].filter(Boolean).join("  ·  ");
+  page.drawText(`${footer}  ·  Broker sheet`.slice(0, 90), {
     x: 36,
     y: 28,
     size: 9,
@@ -110,6 +114,10 @@ function drawFacts(
     page.drawText(item.value.slice(0, 32), { x, y: line - 12, size: 11, font: bold, color: ink });
   });
   return y - Math.ceil(facts.length / 2) * 32;
+}
+
+function pdfSafe(value: string) {
+  return value.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function readPlans(raw: string | null) {

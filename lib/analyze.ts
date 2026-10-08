@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import OpenAI, { toFile } from "openai";
 import { mediaDir } from "./db";
+import { secretValue } from "./env-file";
+import { getSettings } from "./settings";
 import type { CardRow, ExtractedCard, MessageRow } from "./types";
 
 const KINDS = new Set(["listing", "inquiry"]);
@@ -95,13 +97,13 @@ Rules:
 - confidence is from 0 to 1.`;
 
 function client() {
-  const key = process.env.OPENAI_API_KEY;
+  const key = secretValue("OPENAI_API_KEY");
   if (!key) return null;
   return new OpenAI({ apiKey: key });
 }
 
 export function hasOpenAiKey() {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return Boolean(secretValue("OPENAI_API_KEY"));
 }
 
 export async function transcribeVoice(fileName: string, mime: string | null) {
@@ -112,7 +114,7 @@ export async function transcribeVoice(fileName: string, mime: string | null) {
   const file = await toFile(buffer, `note.${ext}`, { type: mime || "audio/ogg" });
   const result = await openai.audio.transcriptions.create({
     file,
-    model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-transcribe",
+    model: secretValue("OPENAI_TRANSCRIBE_MODEL") || "gpt-transcribe",
     prompt: "Real estate voice note. Arabic or English.",
   });
   return result.text?.trim() || null;
@@ -129,10 +131,10 @@ function cleanItem(raw: ExtractedCard): ExtractedCard | null {
     title: raw.title?.trim() || `${propertyType} ${raw.kind}`,
     city: raw.city?.trim() || null,
     area: raw.area?.trim() || null,
-    currency: raw.currency?.trim() || (raw.price != null ? "AED" : null),
+    currency: raw.currency?.trim() || (raw.price != null ? getSettings().currency : null),
     summary: raw.summary?.trim() || "",
     confidence,
-    needs_review: Boolean(raw.needs_review) || confidence < 0.55,
+    needs_review: Boolean(raw.needs_review) || confidence < getSettings().reviewConfidence,
   };
 }
 
@@ -202,9 +204,9 @@ export async function analyzeChat(input: {
   }
 
   const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-6.1-sol",
+    model: secretValue("OPENAI_MODEL") || "gpt-6.1-sol",
     store: false,
-    reasoning: { effort: (process.env.OPENAI_REASONING as "low" | "medium" | "high" | "none") || "low" },
+    reasoning: { effort: (secretValue("OPENAI_REASONING") as "low" | "medium" | "high" | "none") || "low" },
     instructions: INSTRUCTIONS,
     input: [{ role: "user", content }],
     text: {

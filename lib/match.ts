@@ -1,3 +1,4 @@
+import { getSettings } from "@/lib/settings";
 import type { CardRow } from "@/lib/types";
 
 export type MatchHit = {
@@ -37,7 +38,8 @@ function scorePair(listing: CardRow, client: CardRow) {
   if (norm(listing.city) && norm(client.city) && norm(listing.city) !== norm(client.city)) return null;
   if (client.bedrooms === 0 && listing.bedrooms != null && listing.bedrooms !== 0) return null;
   if (client.bedrooms != null && listing.bedrooms != null && listing.bedrooms < client.bedrooms) return null;
-  if (client.price != null && listing.price != null && listing.price > client.price * 1.15) return null;
+  const slack = 1 + getSettings().budgetPercent / 100;
+  if (client.price != null && listing.price != null && listing.price > client.price * slack) return null;
 
   let score = 20;
   const reasons: string[] = [];

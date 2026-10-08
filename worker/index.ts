@@ -12,6 +12,7 @@ import makeWASocket, {
   isJidStatusBroadcast,
   normalizeMessageContent,
   useMultiFileAuthState,
+  type Chat,
   type WAMessage,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
@@ -20,6 +21,7 @@ import { analyzeChat, hasOpenAiKey, transcribeVoice } from "../lib/analyze";
 import { pdfText, savePdfImages } from "../lib/pdf";
 import {
   claimReplies,
+  chatsMissingAvatars,
   clearLidPhones,
   contactName,
   finishReply,
@@ -34,10 +36,13 @@ import {
   rememberPhone,
   saveExtractedCard,
   sessionDir,
+  setChatAvatar,
   updateMessageBody,
   upsertChat,
   upsertContact,
 } from "../lib/db";
+import { reloadSecrets } from "../lib/env-file";
+import { getSettings } from "../lib/settings";
 import { emptyStatus, statusPath, type WaStatus } from "../lib/status";
 import type { MessageRow } from "../lib/types";
 
@@ -45,9 +50,18 @@ loadEnv();
 
 const logger = pino({ level: "silent" });
 let liveSock: ReturnType<typeof makeWASocket> | null = null;
-const HISTORY_KEEP_MS = 180 * 24 * 60 * 60 * 1000;
-const HISTORY_ANALYZE_MS = 24 * 60 * 60 * 1000;
-const HISTORY_MEDIA_MS = 30 * 24 * 60 * 60 * 1000;
+
+function keepMs() {
+  return getSettings().historyDays * 24 * 60 * 60 * 1000;
+}
+
+function analyzeMs() {
+  return getSettings().analyzeHours * 60 * 60 * 1000;
+}
+
+function mediaMs() {
+  return getSettings().mediaDays * 24 * 60 * 60 * 1000;
+}
 const timers = new Map<string, NodeJS.Timeout>();
 const busy = new Set<string>();
 let status: WaStatus = emptyStatus();
@@ -103,6 +117,24 @@ function messageTime(message: WAMessage) {
   } else if (raw != null) seconds = Number(raw);
   if (!Number.isFinite(seconds) || seconds <= 0) return Date.now();
   return seconds < 10_000_000_000 ? seconds * 1000 : seconds;
+}
+
+function storeChat(chat: Chat) {
+  const jid = chat.id || "";
+  if (!jid || isJidStatusBroadcast(jid) || jid.endsWith("@broadcast") || jid.endsWith("@newsletter")) return;
+  const raw = chat.conversationTimestamp as unknown;
+  let seconds = 0;
+  if (typeof raw === "number") seconds = raw;
+  else if (raw && typeof raw === "object" && "toNumber" in raw && typeof raw.toNumber === "function") seconds = raw.toNumber();
+  else if (raw != null) seconds = Number(raw);
+  const at = Number.isFinite(seconds) && seconds > 0 ? (seconds < 10_000_000_000 ? seconds * 1000 : seconds) : null;
+  upsertChat({
+    jid,
+    name: chat.name || null,
+    phone: phoneFromJid(jid),
+    isGroup: Boolean(isJidGroup(jid)),
+    lastMessageAt: at,
+  });
 }
 
 function phoneFromJid(jid: string | null | undefined) {
@@ -165,6 +197,8 @@ function schedule(chatJid: string) {
 
 async function processChat(chatJid: string) {
   if (busy.has(chatJid)) return;
+  reloadSecrets();
+  if (!getSettings().sortingEnabled) return;
   if (!hasOpenAiKey()) return;
   if (Date.now() < openaiBlockedUntil) return;
   const fresh = listUnprocessed(chatJid) as MessageRow[];
@@ -232,7 +266,7 @@ async function ingest(message: WAMessage, source: "live" | "history", sock: Retu
   }
 
   const at = messageTime(message);
-  if (source === "history" && at < Date.now() - HISTORY_KEEP_MS) return;
+  if (source === "history" && at < Date.now() - keepMs()) return;
 
   const fromMe = Boolean(message.key.fromMe);
   const group = Boolean(isJidGroup(jid));
@@ -278,6 +312,10 @@ async function ingest(message: WAMessage, source: "live" | "history", sock: Retu
     latitude = location?.degreesLatitude ?? null;
     longitude = location?.degreesLongitude ?? null;
     body = `Location: ${latitude ?? ""}, ${longitude ?? ""} ${named?.name || named?.address || ""}`.trim();
+  } else if (type === "stickerMessage") {
+    messageType = "image";
+    body = "[Sticker]";
+    mediaMime = content.stickerMessage?.mimetype || "image/webp";
   } else if (type === "contactMessage") {
     body = content.contactMessage?.displayName || "[Contact]";
   } else {
@@ -287,7 +325,7 @@ async function ingest(message: WAMessage, source: "live" | "history", sock: Retu
   const age = Date.now() - at;
   const shouldDownload =
     (messageType === "image" || messageType === "audio" || messageType === "document" || messageType === "video") &&
-    (source === "live" || (messageType !== "video" && age <= HISTORY_MEDIA_MS) || (messageType === "video" && age <= HISTORY_ANALYZE_MS));
+    (source === "live" || (messageType !== "video" && age <= mediaMs()) || (messageType === "video" && age <= analyzeMs()));
 
   if (shouldDownload) {
     try {
@@ -313,7 +351,7 @@ async function ingest(message: WAMessage, source: "live" | "history", sock: Retu
     }
   }
 
-  const analyze = !fromMe && (source === "live" || at >= Date.now() - HISTORY_ANALYZE_MS);
+  const analyze = !fromMe && (source === "live" || at >= Date.now() - analyzeMs());
   const inserted = insertMessage({
     id,
     chat_jid: jid,
@@ -342,7 +380,39 @@ async function ingest(message: WAMessage, source: "live" | "history", sock: Retu
 
   if (!group && senderPhone) rememberPhone(jid, senderPhone);
   if (group) void rememberGroup(sock, jid);
+  if (avatarsOpen) void rememberAvatar(sock, jid);
   if (inserted && analyze) schedule(jid);
+}
+
+const pictured = new Set<string>();
+let avatarsOpen = false;
+
+async function rememberAvatar(sock: ReturnType<typeof makeWASocket>, jid: string) {
+  if (!jid || pictured.has(jid) || jid.endsWith("@broadcast") || jid.endsWith("@newsletter")) return;
+  pictured.add(jid);
+  try {
+    const url = await sock.profilePictureUrl(jid, "image");
+    if (!url) return;
+    const response = await fetch(url);
+    if (!response.ok) return;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length < 80) return;
+    const name = `avatar-${createHash("sha1").update(jid).digest("hex").slice(0, 20)}.jpg`;
+    writeFileSync(path.join(mediaDir(), name), bytes);
+    setChatAvatar(jid, name);
+    console.log("Saved a profile photo");
+  } catch {
+    // WhatsApp hid this photo, or the chat has none.
+  }
+}
+
+async function fillAvatars(sock: ReturnType<typeof makeWASocket>) {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  for (const chat of chatsMissingAvatars()) {
+    await rememberAvatar(sock, chat.jid);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  avatarsOpen = true;
 }
 
 const namedGroups = new Set<string>();
@@ -391,7 +461,7 @@ async function connect() {
     version,
     browser: Browsers.windows("Chrome"),
     markOnlineOnConnect: false,
-    syncFullHistory: false,
+    syncFullHistory: true,
     shouldSyncHistoryMessage: () => true,
   });
 
@@ -405,15 +475,7 @@ async function connect() {
     }
   });
   sock.ev.on("chats.upsert", (chats) => {
-    for (const chat of chats) {
-      if (!chat.id) continue;
-      upsertChat({
-        jid: chat.id,
-        name: chat.name || chat.displayName || null,
-        phone: phoneFromJid(chat.id),
-        isGroup: Boolean(isJidGroup(chat.id)),
-      });
-    }
+    for (const chat of chats) storeChat(chat);
   });
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (gen !== generation) return;
@@ -421,12 +483,13 @@ async function connect() {
       await ingest(message, type === "notify" ? "live" : "history", sock);
     }
   });
-  sock.ev.on("messaging-history.set", async ({ messages }) => {
+  sock.ev.on("messaging-history.set", async ({ chats, messages }) => {
     if (gen !== generation) return;
+    for (const chat of chats || []) storeChat(chat);
     const recent = messages
-      .filter((message) => messageTime(message) >= Date.now() - HISTORY_KEEP_MS)
+      .filter((message) => messageTime(message) >= Date.now() - keepMs())
       .sort((a, b) => messageTime(a) - messageTime(b))
-      .slice(-1000);
+      .slice(-5000);
     for (const message of recent) await ingest(message, "history", sock);
   });
   sock.ev.on("connection.update", (update) => {
@@ -450,6 +513,7 @@ async function connect() {
       liveSock = sock;
       void fillRealPhones(sock);
       for (const group of listUnnamedGroups()) void rememberGroup(sock, group.jid);
+      void fillAvatars(sock);
     }
     if (update.connection === "close") {
       if (gen !== generation) return;
@@ -525,7 +589,8 @@ async function flushReplies() {
 }
 
 function sweep() {
-  if (!hasOpenAiKey() || Date.now() < openaiBlockedUntil) return;
+  reloadSecrets();
+  if (!getSettings().sortingEnabled || !hasOpenAiKey() || Date.now() < openaiBlockedUntil) return;
   const chats = listUnprocessed() as { chat_jid: string }[];
   for (const chat of chats) {
     if (!timers.has(chat.chat_jid) && !busy.has(chat.chat_jid)) schedule(chat.chat_jid);
@@ -533,7 +598,7 @@ function sweep() {
 }
 
 publish({ state: "reconnecting", qrDataUrl: null, lastError: null });
-console.log("Property Desk WhatsApp worker is running");
+console.log("Newton Property WhatsApp worker is running");
 console.log("Open http://localhost:3000");
 if (!hasOpenAiKey()) {
   console.log("Add OPENAI_API_KEY to .env and restart. Messages will be saved, then sorted.");

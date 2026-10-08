@@ -63,6 +63,28 @@ export function propertyFacts(card: CardRow): Fact[] {
   return keys.map((key) => fields[key]);
 }
 
+export function listingCriteria(card: CardRow, hasPhoto: boolean, hasDeveloper: boolean) {
+  const extra = readExtra(card.extra);
+  const land = card.property_type === "land";
+  const items = [
+    { label: "Photo", ok: hasPhoto },
+    { label: "Price", ok: card.price != null },
+    { label: "Location", ok: Boolean(card.city && card.area) },
+    { label: "Type", ok: Boolean(card.property_type) },
+    ...(land
+      ? [{ label: "Plot", ok: card.size_sqm != null || Boolean(extra.plot) }]
+      : [
+          { label: "Bedrooms", ok: card.bedrooms != null },
+          { label: "Bathrooms", ok: card.bathrooms != null },
+          { label: "Size", ok: card.size_sqm != null },
+          { label: "Handover", ok: Boolean(extra.handover) },
+        ]),
+    { label: card.kind === "inquiry" ? "Phone" : "Developer", ok: card.kind === "inquiry" ? Boolean(card.sender_phone) : hasDeveloper },
+  ];
+  const done = items.filter((item) => item.ok).length;
+  return { items, done, total: items.length };
+}
+
 export function dealFacts(card: CardRow): Fact[] {
   const extra = readExtra(card.extra);
   const plans = (extra.plans || []).filter((plan) => plan.price);

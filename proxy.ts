@@ -3,7 +3,7 @@ import { sessionToken } from "@/lib/auth";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (pathname === "/" || pathname === "/api/auth/login") return NextResponse.next();
+  if (pathname === "/" || pathname === "/api/auth/login" || pathname === "/newton-logo.png") return NextResponse.next();
 
   const token = request.cookies.get("pd_session")?.value;
   const expected = await sessionToken();

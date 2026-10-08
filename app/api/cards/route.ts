@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createCard, listCards } from "@/lib/db";
+import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export async function GET(request: Request) {
     status: url.searchParams.get("status") || undefined,
     q: url.searchParams.get("q") || undefined,
     supplierId: url.searchParams.get("supplier") || undefined,
+    developerId: url.searchParams.get("developer") || undefined,
   });
   return NextResponse.json({ cards });
 }
@@ -29,16 +31,17 @@ export async function POST(request: Request) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
+  const settings = getSettings();
   const id = createCard({
     kind,
     title,
     purpose: typeof input.purpose === "string" && input.purpose ? input.purpose : null,
     propertyType: typeof input.propertyType === "string" && input.propertyType ? input.propertyType : null,
-    city: String(input.city || "").trim() || null,
+    city: String(input.city || "").trim() || settings.defaultCity || null,
     area: String(input.area || "").trim() || null,
     price: numberOrNull(input.price),
     bedrooms: numberOrNull(input.bedrooms),
-    broker: String(input.broker || "").trim() || null,
+    broker: String(input.broker || "").trim() || settings.defaultBroker || null,
     summary: String(input.summary || "").trim() || null,
     senderName: String(input.senderName || "").trim() || null,
     senderPhone: String(input.senderPhone || "").trim() || null,

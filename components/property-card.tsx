@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { WhatsAppLink } from "@/components/whatsapp-link";
 import { cardSlots } from "@/lib/facts";
-import { formatPhone, formatPrice, formatWhen, propertyLabel, purposeLabel, statusLabel } from "@/lib/format";
+import { formatPhone, formatPrice, formatWhen, purposeLabel, statusLabel } from "@/lib/format";
 import type { CardExtra, CardRow } from "@/lib/types";
 
 function readPlans(raw: string | null) {
@@ -14,7 +14,7 @@ function readPlans(raw: string | null) {
   }
 }
 
-export function PropertyCard({ card }: { card: CardRow }) {
+export function PropertyCard({ card, onDeleted }: { card: CardRow; onDeleted?: () => void }) {
   const place = [card.area, card.city].filter(Boolean).join(", ");
   const plans = readPlans(card.extra);
   const price = plans.length
@@ -25,8 +25,14 @@ export function PropertyCard({ card }: { card: CardRow }) {
   const href = card.kind === "inquiry" ? `/clients/${card.id}` : `/properties/${card.id}`;
   const phone = formatPhone(card.sender_phone);
 
+  async function remove() {
+    if (!window.confirm("Delete this record?")) return;
+    const response = await fetch(`/api/cards/${card.id}`, { method: "DELETE" });
+    if (response.ok) onDeleted?.();
+  }
+
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_10px_28px_rgba(7,24,51,0.05)] transition duration-200 hover:-translate-y-0.5 hover:border-[#123a86]/25 hover:shadow-[0_16px_36px_rgba(7,24,51,0.12)]">
+    <article className="desk-card group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-panel transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(7,24,51,0.12)]">
       <Link href={href} className="absolute inset-0 z-0" aria-label={card.title || "Open"} />
       <div className="pointer-events-none relative h-36 overflow-hidden bg-sand">
         {card.cover ? (
@@ -36,10 +42,10 @@ export function PropertyCard({ card }: { card: CardRow }) {
             className="h-full w-full object-cover object-top transition duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="grid h-full place-items-center gap-2 text-sm font-medium text-pine">
-            <Icon name={card.property_type === "land" ? "land" : card.property_type === "villa" ? "home" : "building"} className="h-6 w-6" />
-            {propertyLabel(card.property_type)}
-          </div>
+          <span className="flex h-full flex-col items-center justify-center gap-1 bg-sand text-[11px] font-medium text-muted">
+            <img src="/newton-logo.png" alt="" className="h-8 w-14 object-contain" />
+            No photo
+          </span>
         )}
         <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-pine px-2 py-1 text-[11px] font-semibold tracking-wide text-white">
           <Icon name="tag" className="h-3 w-3" />
@@ -71,7 +77,15 @@ export function PropertyCard({ card }: { card: CardRow }) {
             <Icon name={card.broker ? "user" : "chat"} className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{card.sender_name || card.broker || "Unassigned"} · {statusLabel(card.status)}</span>
           </p>
-          <WhatsAppLink phone={phone === "—" ? null : phone} />
+          <span className="flex shrink-0 items-center gap-1">
+            <Link href={`${href}?edit=1`} title="Edit" aria-label="Edit" className="grid h-8 w-8 place-items-center rounded-full border border-line bg-panel text-pine hover:bg-sand">
+              <Icon name="pencil" className="h-3.5 w-3.5" />
+            </Link>
+            <button type="button" title="Delete" aria-label="Delete" onClick={() => void remove()} className="grid h-8 w-8 place-items-center rounded-full border border-line bg-panel text-clay hover:bg-sand">
+              <Icon name="trash" className="h-3.5 w-3.5" />
+            </button>
+            <WhatsAppLink phone={phone === "—" ? null : phone} />
+          </span>
         </div>
         <p className="mt-1 text-[11px] text-muted">{formatWhen(card.updated_at)}</p>
       </div>

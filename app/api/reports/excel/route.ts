@@ -2,7 +2,8 @@ import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 import { NA } from "@/lib/facts";
 import { listCards, stats } from "@/lib/db";
-import { formatPhone, propertyLabel, purposeLabel, statusLabel } from "@/lib/format";
+import { applyDeskLocale, formatPhone, propertyLabel, purposeLabel, statusLabel } from "@/lib/format";
+import { getSettings } from "@/lib/settings";
 import type { CardExtra, CardRow } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -20,15 +21,19 @@ export async function GET(request: Request) {
     q: url.searchParams.get("q") || undefined,
   });
   const summary = stats();
+  const settings = getSettings();
+  applyDeskLocale(settings);
   const book = new ExcelJS.Workbook();
-  book.creator = "Newton Property";
+  book.creator = settings.officeName;
 
   const overview = book.addWorksheet("Summary");
   overview.columns = [
     { header: "Metric", key: "metric", width: 22 },
-    { header: "Count", key: "count", width: 14 },
+    { header: "Count", key: "count", width: 28 },
   ];
   overview.addRows([
+    { metric: "Office", count: settings.officeName },
+    { metric: "Phone", count: settings.officePhone || "" },
     { metric: "New today", count: summary.newToday },
     { metric: "Listings", count: summary.listings },
     { metric: "Inquiries", count: summary.inquiries },

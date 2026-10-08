@@ -27,11 +27,11 @@ export default function WhatsAppPage() {
     <div className="h-full min-h-0 flex-1 overflow-auto px-8 py-7">
       <h1 className="text-3xl font-semibold tracking-tight">Link WhatsApp</h1>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-        Scan once from your phone. This computer then receives the same new messages, and OpenAI files each property.
+        Scan once from your phone. This computer then receives new messages on the same number.
       </p>
 
       <div className="mt-6 grid max-w-4xl gap-4 lg:grid-cols-[280px_1fr]">
-        <div className="grid min-h-72 place-items-center rounded-3xl border border-line bg-panel p-4">
+        <div className="grid min-h-72 place-items-center desk-card rounded-3xl border border-line bg-panel p-4">
           {state === "qr" && status?.qrDataUrl ? (
             <img src={status.qrDataUrl} alt="WhatsApp QR code" className="w-full" />
           ) : (
@@ -44,7 +44,7 @@ export default function WhatsAppPage() {
             </p>
           )}
         </div>
-        <div className="rounded-3xl border border-line bg-panel p-6">
+        <div className="desk-card rounded-3xl border border-line bg-panel p-6">
           <p className="text-sm font-medium">
             Status: {state === "connected" ? "Connected" : state === "qr" ? "Ready to scan" : state}
           </p>
@@ -60,7 +60,7 @@ export default function WhatsAppPage() {
           {status?.lastError ? <p className="mt-4 text-sm text-clay">{status.lastError}</p> : null}
           {!status?.openai ? (
             <p className="mt-4 text-sm text-clay">
-              OpenAI key is missing. Chats will still arrive. Sorting starts after you add OPENAI_API_KEY to .env and restart.
+              Messages are saved. Automatic sorting starts after an OpenAI key is added and the desk is restarted.
             </p>
           ) : (
             <p className="mt-4 text-sm text-muted">Sorting model: {status.model}</p>

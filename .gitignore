@@ -1,6 +1,7 @@
 node_modules
 .next
 data
+.tools
 .env
 *.log
 tsconfig.tsbuildinfo

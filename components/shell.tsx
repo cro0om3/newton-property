@@ -1,58 +1,61 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { createContext, useContext, useEffect, useState } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { Logo } from "@/components/logo";
-import type { WaStatus } from "@/lib/status";
+import { TopBar } from "@/components/top-bar";
+import { DEFAULT_SETTINGS, SETTINGS_EVENT, type DeskSettings } from "@/lib/desk-defaults";
+import { applyDeskLocale } from "@/lib/format";
 
 const LINKS: Array<{ href: string; label: string; icon: IconName }> = [
   { href: "/dashboard", label: "Dashboard", icon: "grid" },
   { href: "/properties", label: "Properties", icon: "building" },
   { href: "/clients", label: "Clients", icon: "user" },
-  { href: "/suppliers", label: "Suppliers", icon: "layers" },
+  { href: "/suppliers", label: "Developers", icon: "layers" },
   { href: "/inbox", label: "WhatsApp", icon: "chat" },
   { href: "/review", label: "Review", icon: "check" },
   { href: "/reports", label: "Reports", icon: "sheet" },
   { href: "/whatsapp", label: "Link", icon: "phone" },
+  { href: "/settings", label: "Settings", icon: "settings" },
 ];
+
+const DeskPrefsContext = createContext<DeskSettings>(DEFAULT_SETTINGS);
+
+export function useDeskPrefs() {
+  return useContext(DeskPrefsContext);
+}
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [status, setStatus] = useState<WaStatus | null>(null);
+  const [settings, setSettings] = useState<DeskSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     let stop = false;
     async function load() {
-      const response = await fetch("/api/whatsapp");
+      const response = await fetch("/api/settings");
       if (!response.ok || stop) return;
-      setStatus(await response.json());
+      const body = await response.json();
+      applyDeskLocale(body.settings);
+      setSettings(body.settings);
     }
     void load();
-    const timer = setInterval(load, 4000);
+    window.addEventListener(SETTINGS_EVENT, load);
     return () => {
       stop = true;
-      clearInterval(timer);
+      window.removeEventListener(SETTINGS_EVENT, load);
     };
   }, []);
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
-    router.refresh();
-  }
-
-  const connected = status?.state === "connected";
-
   return (
+    <DeskPrefsContext.Provider value={settings}>
     <div className="flex h-screen overflow-hidden bg-paper">
       <aside className="flex w-60 shrink-0 flex-col bg-pine text-white">
         <div className="px-4 py-5">
-          <Logo />
+          <Logo src={settings.logo} alt={settings.officeName} />
         </div>
-        <nav className="flex flex-1 flex-col gap-1 px-3">
+        <nav className="flex flex-1 flex-col gap-1 px-3 pb-4">
           {LINKS.map((link) => {
             const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
@@ -67,17 +70,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="border-t border-white/10 p-4">
-          <p className="flex items-center gap-2 text-sm">
-            <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
-            {connected ? "WhatsApp connected" : "WhatsApp offline"}
-          </p>
-          <button onClick={logout} className="mt-3 text-sm text-white/70 hover:text-white">
-            Sign out
-          </button>
-        </div>
       </aside>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <TopBar />
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="absolute inset-0 flex min-h-0 flex-col">{children}</div>
+        </main>
+      </div>
     </div>
+    </DeskPrefsContext.Provider>
   );
 }

@@ -40,7 +40,7 @@ export function PaymentPlans({ plans }: { plans: PaymentPlan[] }) {
         })}
       </div>
       {selected ? (
-        <article className="mt-3 rounded-2xl border border-line bg-panel p-4">
+        <article className="mt-3 desk-card rounded-2xl border border-line bg-panel p-4">
           <div className="flex flex-wrap gap-4 text-sm">
             {selected.dldFee != null ? <p>DLD 4% {formatPrice(selected.dldFee, "AED", 2)}</p> : null}
             {selected.adminFee != null ? <p>Admin {formatPrice(selected.adminFee, "AED", 2)}</p> : null}

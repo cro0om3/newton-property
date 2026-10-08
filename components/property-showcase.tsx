@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import { WhatsAppLink } from "@/components/whatsapp-link";
+import { listingCriteria } from "@/lib/facts";
 import { formatPhone, formatPrice, formatRooms, label, PROPERTY_LABELS, PURPOSE_LABELS } from "@/lib/format";
 import type { CardExtra, CardRow, SupplierRow } from "@/lib/types";
 
@@ -47,6 +49,9 @@ export function PropertyShowcase({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, files.length]);
 
+  const file = listingCriteria(card, files.length > 0, Boolean(supplier?.company_name));
+  const sample = (extra.reference || "").startsWith("SAMPLE");
+
   const facts = [
     { icon: "building" as const, value: label(PROPERTY_LABELS, card.property_type) },
     ...(card.property_type === "land" ? [] : [
@@ -60,17 +65,20 @@ export function PropertyShowcase({
     <>
       <div className="grid items-start gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <div>
-          <button
-            type="button"
-            onClick={() => files.length && setOpen(active)}
-            className="block aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-sand"
-          >
-            {files[active] ? (
+          {files[active] ? (
+            <button
+              type="button"
+              onClick={() => setOpen(active)}
+              className="block aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-sand"
+            >
               <img src={`/api/media/${files[active]}`} alt="" className="h-full w-full object-cover object-top" />
-            ) : (
-              <span className="flex h-full items-center justify-center text-sm text-muted">No photo yet</span>
-            )}
-          </button>
+            </button>
+          ) : (
+            <div className="flex h-44 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-sand">
+              <img src="/newton-logo.png" alt="" className="h-12 w-20 rounded-lg object-contain" />
+              <p className="text-sm font-medium text-ink">No photo yet</p>
+            </div>
+          )}
           {files.length > 1 ? (
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {files.map((file, index) => (
@@ -87,8 +95,11 @@ export function PropertyShowcase({
           ) : null}
         </div>
 
-        <div className="rounded-2xl border border-line bg-panel p-5">
-          <p className="text-3xl font-semibold tracking-tight text-leaf">{formatPrice(card.price, card.currency)}</p>
+        <div className="desk-card rounded-2xl border border-line bg-panel p-5">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-3xl font-semibold tracking-tight text-leaf">{formatPrice(card.price, card.currency)}</p>
+            {sample ? <span className="rounded-full bg-sand px-2.5 py-1 text-[11px] font-semibold text-pine">Sample</span> : null}
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
             {facts.map((fact) => (
               <div key={fact.icon + fact.value} className="flex items-center gap-2 text-sm">
@@ -109,14 +120,45 @@ export function PropertyShowcase({
             <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">Handover {extra.handover || "N/A"}</span>
             <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">{plan || "Payment plan N/A"}</span>
           </div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium">{card.kind === "inquiry" ? "Client file" : "Listing file"}</span>
+              <span className="text-muted">{file.done} of {file.total}</span>
+            </div>
+            <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-sand">
+              <span className="block h-1.5 rounded-full bg-pine" style={{ width: `${Math.round((file.done / file.total) * 100)}%` }} />
+            </span>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {file.items.map((item) => (
+                <span key={item.label} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${item.ok ? "bg-sand text-pine" : "bg-paper text-muted"}`}>
+                  {item.ok ? item.label : `${item.label} missing`}
+                </span>
+              ))}
+            </div>
+          </div>
 
-          <div className="mt-5 rounded-2xl border border-line bg-paper p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">{card.kind === "inquiry" ? "Client" : "Listed by"}</p>
+          <div className="mt-5 flex gap-3 rounded-2xl border border-line bg-paper p-4">
+            {supplier?.company_logo ? (
+              <img src={`/api/media/${supplier.company_logo}`} alt="" className="h-14 w-14 rounded-2xl object-cover" />
+            ) : (
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-pine text-white">
+                <Icon name={card.kind === "inquiry" ? "user" : "building"} className="h-6 w-6" />
+              </span>
+            )}
+            <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">{card.kind === "inquiry" ? "Client" : "Employee"}</p>
             <p className="mt-1 font-semibold">{supplier?.name || card.sender_name || "Unnamed"}</p>
-            <p className="text-sm text-muted">{supplier?.company_name || "Company not set"}</p>
+            {supplier?.company_id && supplier.company_name ? (
+              <Link href={`/suppliers/${supplier.company_id}`} className="text-sm font-medium text-leaf">
+                {supplier.company_name}
+              </Link>
+            ) : (
+              <p className="text-sm text-muted">No developer yet</p>
+            )}
             <p className="mt-1 text-sm">{formatPhone(phone) || "No mobile number"}</p>
             <div className="mt-3">
               <WhatsAppLink phone={phone} />
+            </div>
             </div>
           </div>
         </div>

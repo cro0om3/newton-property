@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addFollowUp, cardGallery, cardMessages, ensureSupplier, getCard, getSupplier, linkSupplier, listCards, listFollowUps, updateCardDesk, updateCardDetails, updateCardStatus } from "@/lib/db";
+import { addFollowUp, cardGallery, cardMessages, deleteCard, deleteFollowUp, ensureSupplier, getCard, getSupplier, linkSupplier, listCards, listFollowUps, updateCardDesk, updateCardDetails, updateCardStatus } from "@/lib/db";
 import type { CardExtra } from "@/lib/types";
 import { matchesFor } from "@/lib/match";
 
@@ -55,5 +55,16 @@ export async function PATCH(request: Request, context: Context) {
   if (body.supplierName !== undefined) linkSupplier(id, body.supplierName, body.companyName || "");
   const note = body.note?.trim();
   if (note) addFollowUp(id, note, body.broker?.trim() || getCard(id)?.broker || null);
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request, context: Context) {
+  const { id } = await context.params;
+  const followUp = new URL(request.url).searchParams.get("followUp");
+  if (followUp) {
+    if (!deleteFollowUp(followUp)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  }
+  if (!deleteCard(id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

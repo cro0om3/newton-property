@@ -23,7 +23,13 @@ export type IconName =
   | "layers"
   | "search"
   | "sheet"
-  | "user";
+  | "user"
+  | "send"
+  | "clip"
+  | "bell"
+  | "pencil"
+  | "trash"
+  | "settings";
 
 const PATHS: Record<IconName, ReactNode> = {
   bed: (
@@ -181,6 +187,42 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M14 3v6h6" />
       <path d="M8 13h8" />
       <path d="M8 17h8" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M4 12 20 4l-7 16-2.2-6.2z" />
+      <path d="M10.8 13.8 20 4" />
+    </>
+  ),
+  clip: (
+    <>
+      <path d="M8 12.5 14.8 6a3 3 0 0 1 4.2 4.2l-8.2 8.2a4.2 4.2 0 0 1-6-6L12.6 4.6" />
+    </>
+  ),
+  bell: (
+    <>
+      <path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+      <path d="M10 20a2 2 0 0 0 4 0" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M4 20h4l10-10-4-4L4 16z" />
+      <path d="M13 7l4 4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M5 7h14" />
+      <path d="M9 7V5h6v2" />
+      <path d="M7 7l1 12h8l1-12" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8 5.6 18.4" />
     </>
   ),
 };

@@ -53,7 +53,7 @@ export default function ReportsPage() {
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {totals.map((item) => (
-          <article key={item.label} className="flex items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-4">
+          <article key={item.label} className="flex items-center gap-3 desk-card rounded-2xl border border-line bg-panel px-4 py-4">
             <IconBadge name={item.icon} />
             <div>
               <p className="text-sm text-muted">{item.label}</p>
@@ -63,7 +63,7 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      <section className="mt-6 overflow-hidden rounded-2xl border border-line bg-panel">
+      <section className="mt-6 overflow-hidden desk-card rounded-2xl border border-line bg-panel">
         <div className="flex items-center justify-between px-5 py-4">
           <h2 className="font-semibold">Sheets</h2>
           <p className="text-sm text-muted">{stats?.needsReview ?? 0} need review</p>

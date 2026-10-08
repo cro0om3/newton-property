@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PropertyCard } from "@/components/property-card";
 import type { CardRow } from "@/lib/types";
@@ -16,6 +17,7 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
   const [status, setStatus] = useState(params.get("status") || "");
   const [q, setQ] = useState("");
   const supplierId = params.get("supplier") || "";
+  const developerId = params.get("developer") || "";
   const [cards, setCards] = useState<CardRow[] | null>(null);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -24,6 +26,7 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
   const [price, setPrice] = useState("");
   const [bedrooms, setBedrooms] = useState("");
   const [broker, setBroker] = useState("");
+  const [brokers, setBrokers] = useState<string[]>([]);
   const [senderName, setSenderName] = useState("");
   const [formType, setFormType] = useState("");
   const [formPurpose, setFormPurpose] = useState(listing ? "sale" : "buy");
@@ -36,8 +39,20 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
     if (status) search.set("status", status);
     if (q.trim()) search.set("q", q.trim());
     if (supplierId) search.set("supplier", supplierId);
+    if (developerId) search.set("developer", developerId);
     return search.toString();
-  }, [kind, propertyType, purpose, status, q, supplierId]);
+  }, [kind, propertyType, purpose, status, q, supplierId, developerId]);
+
+  useEffect(() => {
+    void fetch("/api/settings")
+      .then((response) => response.json())
+      .then((body) => {
+        const names = Array.isArray(body.settings?.brokers) ? body.settings.brokers : [];
+        setBrokers(names);
+        setBroker((current) => current || body.settings?.defaultBroker || "");
+        setCity((current) => current || body.settings?.defaultCity || "");
+      });
+  }, []);
 
   useEffect(() => {
     let stop = false;
@@ -98,9 +113,18 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
         </div>
       </div>
 
+      {supplierId || developerId ? (
+        <p className="mt-4 text-sm text-muted">
+          Showing a filtered list.{" "}
+          <Link href={listing ? "/properties" : "/clients"} className="font-medium text-leaf">
+            Show all
+          </Link>
+        </p>
+      ) : null}
+
       {open ? (
         <form
-          className="mt-5 grid gap-3 rounded-2xl border border-line bg-panel p-4 md:grid-cols-4"
+          className="mt-5 grid gap-3 desk-card rounded-2xl border border-line bg-panel p-4 md:grid-cols-4"
           onSubmit={(event) => {
             event.preventDefault();
             void createRecord();
@@ -108,7 +132,8 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
         >
           <input required value={title} onChange={(event) => setTitle(event.target.value)} placeholder={listing ? "Property title" : "What they want"} className="rounded-xl border border-line bg-paper px-3 py-2 text-sm md:col-span-2" />
           <input value={senderName} onChange={(event) => setSenderName(event.target.value)} placeholder={listing ? "Owner name" : "Client name"} className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
-          <input value={broker} onChange={(event) => setBroker(event.target.value)} placeholder="Broker" className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
+          <input value={broker} onChange={(event) => setBroker(event.target.value)} placeholder="Broker" list="desk-brokers" className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
+          <datalist id="desk-brokers">{brokers.map((name) => <option key={name} value={name} />)}</datalist>
           <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="City" className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
           <input value={area} onChange={(event) => setArea(event.target.value)} placeholder="Area" className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
           <input value={price} onChange={(event) => setPrice(event.target.value)} placeholder={listing ? "Price" : "Budget"} className="rounded-xl border border-line bg-paper px-3 py-2 text-sm" />
@@ -125,7 +150,7 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
         </form>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel p-3">
+      <div className="mt-5 flex flex-wrap items-center gap-2 desk-card rounded-2xl border border-line bg-panel p-3">
         <input
           value={q}
           onChange={(event) => setQ(event.target.value)}
@@ -158,7 +183,7 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
       </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {(cards || []).map((card) => (
-          <PropertyCard key={card.id} card={card} />
+          <PropertyCard key={card.id} card={card} onDeleted={() => setCards((current) => (current || []).filter((item) => item.id !== card.id))} />
         ))}
       </div>
       {cards && cards.length === 0 ? <p className="mt-8 text-sm text-muted">Nothing in this list yet.</p> : null}

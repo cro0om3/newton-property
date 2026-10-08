@@ -16,6 +16,9 @@ export const PURPOSE_LABELS: Record<string, string> = {
   seek_rent: "Wants to rent",
 };
 
+let activeZone = "Asia/Dubai";
+let activeCurrency = "AED";
+
 const STATUS_LABELS: Record<string, string> = {
   new: "New",
   contacted: "Contacted",
@@ -44,9 +47,25 @@ export function statusLabel(value: string | null | undefined) {
   return label(STATUS_LABELS, value);
 }
 
+export function deskZone() {
+  return activeZone;
+}
+
+export function deskCurrency() {
+  return activeCurrency;
+}
+
+export function applyDeskLocale(input: { timezone?: string; currency?: string; pipelineLabels?: Record<string, string> }) {
+  if (input.timezone) activeZone = input.timezone;
+  if (input.currency) activeCurrency = input.currency;
+  for (const [key, value] of Object.entries(input.pipelineLabels || {})) {
+    if (value.trim()) STATUS_LABELS[key] = value.trim();
+  }
+}
+
 export function formatPrice(price: number | null, currency: string | null, digits = 0) {
   if (price == null || Number.isNaN(price)) return "Price not set";
-  const code = currency || "AED";
+  const code = currency || activeCurrency || "AED";
   try {
     return new Intl.NumberFormat("en-AE", {
       style: "currency",
@@ -68,7 +87,7 @@ export function formatRooms(bedrooms: number | null | undefined) {
 export function formatWhen(timestamp: number | null | undefined) {
   if (!timestamp) return "";
   return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Dubai",
+    timeZone: activeZone,
     day: "2-digit",
     month: "short",
     hour: "2-digit",

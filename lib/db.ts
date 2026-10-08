@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { CardExtra, CardFilters, CardRow, ChatRow, ExtractedCard, MessageRow, SupplierRow } from "./types";
+import { getSettings } from "./settings";
+import { zonedDayRange } from "./time";
+import type { CardExtra, CardFilters, CardRow, ChatRow, DeveloperRow, ExtractedCard, MessageRow, SupplierRow } from "./types";
 
 const globalForDb = globalThis as unknown as { propertyDeskDb?: DatabaseSync };
 
@@ -110,6 +112,9 @@ function ensureColumns(database: DatabaseSync) {
   if (!chatColumns.some((column) => column.name === "name_locked")) {
     database.exec("ALTER TABLE chats ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0");
   }
+  if (!chatColumns.some((column) => column.name === "avatar")) {
+    database.exec("ALTER TABLE chats ADD COLUMN avatar TEXT");
+  }
   const outboxReady = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'outbox'").get();
   if (outboxReady) {
     const outboxColumns = database.prepare("PRAGMA table_info(outbox)").all() as Array<{ name: string }>;
@@ -124,6 +129,7 @@ function ensureColumns(database: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      logo TEXT,
       created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -143,7 +149,8 @@ function ensureColumns(database: DatabaseSync) {
       status TEXT NOT NULL,
       error TEXT,
       created_at INTEGER NOT NULL,
-      sent_at INTEGER
+      sent_at INTEGER,
+      not_before INTEGER
     );
     CREATE TABLE IF NOT EXISTS follow_ups (
       id TEXT PRIMARY KEY,
@@ -152,7 +159,19 @@ function ensureColumns(database: DatabaseSync) {
       broker TEXT,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS desk_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      value TEXT NOT NULL
+    );
   `);
+  const companyColumns = database.prepare("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
+  if (companyColumns.length && !companyColumns.some((column) => column.name === "logo")) {
+    database.exec("ALTER TABLE companies ADD COLUMN logo TEXT");
+  }
+  const outboxColumns = database.prepare("PRAGMA table_info(outbox)").all() as Array<{ name: string }>;
+  if (outboxColumns.length && !outboxColumns.some((column) => column.name === "not_before")) {
+    database.exec("ALTER TABLE outbox ADD COLUMN not_before INTEGER");
+  }
 }
 
 export function getDb() {
@@ -273,7 +292,7 @@ export function getSupplier(id: string) {
   return (
     (getDb()
       .prepare(
-        `SELECT s.id, s.name, s.phone, s.company_id, s.chat_jid, c.name AS company_name,
+        `SELECT s.id, s.name, s.phone, s.company_id, s.chat_jid, c.name AS company_name, c.logo AS company_logo,
           (SELECT COUNT(*) FROM cards k WHERE k.supplier_id = s.id AND k.kind = 'listing') AS listings
          FROM suppliers s LEFT JOIN companies c ON c.id = s.company_id WHERE s.id = ?`,
       )
@@ -288,7 +307,7 @@ export function listSuppliers() {
   for (const source of sources) ensureSupplier(source.chat_jid, source.sender_name, source.sender_phone);
   return getDb()
     .prepare(
-      `SELECT s.id, s.name, s.phone, s.company_id, s.chat_jid, c.name AS company_name,
+      `SELECT s.id, s.name, s.phone, s.company_id, s.chat_jid, c.name AS company_name, c.logo AS company_logo,
         (SELECT COUNT(*) FROM cards k WHERE k.supplier_id = s.id AND k.kind = 'listing') AS listings
        FROM suppliers s
        LEFT JOIN companies c ON c.id = s.company_id
@@ -306,6 +325,84 @@ function companyIdFor(name: string) {
   const id = randomUUID();
   db.prepare("INSERT INTO companies (id, name, created_at) VALUES (?, ?, ?)").run(id, company, Date.now());
   return id;
+}
+
+export function listDevelopers() {
+  return getDb()
+    .prepare(
+      `SELECT c.id, c.name, c.logo,
+        (SELECT COUNT(*) FROM suppliers s WHERE s.company_id = c.id) AS employees,
+        (SELECT COUNT(*) FROM cards k JOIN suppliers s ON s.id = k.supplier_id WHERE s.company_id = c.id AND k.kind = 'listing') AS listings
+       FROM companies c
+       ORDER BY c.name COLLATE NOCASE`,
+    )
+    .all() as DeveloperRow[];
+}
+
+export function getDeveloper(id: string) {
+  return (
+    (getDb()
+      .prepare(
+        `SELECT c.id, c.name, c.logo,
+          (SELECT COUNT(*) FROM suppliers s WHERE s.company_id = c.id) AS employees,
+          (SELECT COUNT(*) FROM cards k JOIN suppliers s ON s.id = k.supplier_id WHERE s.company_id = c.id AND k.kind = 'listing') AS listings
+         FROM companies c WHERE c.id = ?`,
+      )
+      .get(id) as DeveloperRow | undefined) || null
+  );
+}
+
+export function createDeveloper(name: string) {
+  return companyIdFor(name);
+}
+
+export function setDeveloperLogo(id: string, file: string) {
+  const result = getDb().prepare("UPDATE companies SET logo = ? WHERE id = ?").run(file, id);
+  return result.changes > 0;
+}
+
+export function renameDeveloper(id: string, name: string) {
+  const clean = name.trim();
+  if (!clean) return null;
+  const db = getDb();
+  const current = db.prepare("SELECT id FROM companies WHERE id = ?").get(id);
+  if (!current) return null;
+  const other = db.prepare("SELECT id FROM companies WHERE name = ? COLLATE NOCASE AND id != ?").get(clean, id) as { id: string } | undefined;
+  if (other) {
+    db.prepare("UPDATE suppliers SET company_id = ? WHERE company_id = ?").run(other.id, id);
+    db.prepare("DELETE FROM companies WHERE id = ?").run(id);
+    return other.id;
+  }
+  db.prepare("UPDATE companies SET name = ? WHERE id = ?").run(clean, id);
+  return id;
+}
+
+export function updateEmployee(id: string, name: string, developerName: string) {
+  const supplier = getSupplier(id);
+  if (!supplier) return false;
+  if (!saveSupplier(id, name, developerName)) return false;
+  if (supplier.chat_jid) renameChat(supplier.chat_jid, name.trim());
+  return true;
+}
+
+export function listPrivateChats() {
+  return getDb()
+    .prepare("SELECT jid, name, phone FROM chats WHERE is_group = 0 ORDER BY COALESCE(name, phone)")
+    .all() as Array<{ jid: string; name: string | null; phone: string | null }>;
+}
+
+export function listDeveloperNames() {
+  return (getDb().prepare("SELECT name FROM companies ORDER BY name COLLATE NOCASE").all() as Array<{ name: string }>).map((row) => row.name);
+}
+
+export function assignChatDeveloper(jid: string, personName: string, developerName: string) {
+  const chat = getDb().prepare("SELECT name, phone FROM chats WHERE jid = ?").get(jid) as { name: string | null; phone: string | null } | undefined;
+  if (!chat) return false;
+  const name = personName.trim() || chat.name || "Unnamed";
+  if (personName.trim()) renameChat(jid, personName.trim());
+  const supplier = ensureSupplier(jid, name, chat.phone);
+  if (!supplier) return false;
+  return saveSupplier(supplier.id, name, developerName);
 }
 
 export function linkSupplier(cardId: string, name: string, companyName: string) {
@@ -457,6 +554,14 @@ export function updateMessageBody(id: string, body: string) {
   getDb().prepare("UPDATE messages SET body = ? WHERE id = ?").run(body, id);
 }
 
+export function setChatAvatar(jid: string, file: string) {
+  getDb().prepare("UPDATE chats SET avatar = ? WHERE jid = ?").run(file, jid);
+}
+
+export function chatsMissingAvatars() {
+  return getDb().prepare("SELECT jid FROM chats WHERE avatar IS NULL OR TRIM(avatar) = ''").all() as Array<{ jid: string }>;
+}
+
 export function listUnnamedGroups() {
   return getDb()
     .prepare("SELECT jid FROM chats WHERE is_group = 1 AND (name IS NULL OR TRIM(name) = '')")
@@ -466,13 +571,12 @@ export function listUnnamedGroups() {
 export function listChats() {
   return getDb()
     .prepare(
-      `SELECT c.*, co.name AS company_name,
+      `SELECT c.*, co.name AS company_name, co.logo AS company_logo,
         (SELECT COUNT(*) FROM cards k WHERE k.chat_jid = c.jid AND k.kind = 'listing' AND k.status != 'closed') AS listings
        FROM chats c
        LEFT JOIN suppliers s ON s.chat_jid = c.jid
        LEFT JOIN companies co ON co.id = s.company_id
-       ORDER BY c.last_message_at DESC
-       LIMIT 400`,
+       ORDER BY c.last_message_at DESC`,
     )
     .all() as ChatRow[];
 }
@@ -549,6 +653,10 @@ export function listCards(filters: CardFilters = {}) {
     where.push("c.supplier_id = ?");
     params.push(filters.supplierId);
   }
+  if (filters.developerId) {
+    where.push("c.supplier_id IN (SELECT id FROM suppliers WHERE company_id = ?)");
+    params.push(filters.developerId);
+  }
   if (filters.q?.trim()) {
     const like = `%${filters.q.trim().replace(/[%_]/g, "")}%`;
     where.push(
@@ -596,7 +704,10 @@ export function cardMessages(cardId: string) {
 }
 
 function statusFor(item: ExtractedCard) {
-  if (item.needs_review || item.confidence < 0.55) return "needs_review";
+  const settings = getSettings();
+  const missingPrice = settings.reviewIfMissingPrice && item.price == null;
+  const missingLocation = settings.reviewIfMissingLocation && !item.city && !item.area;
+  if (item.needs_review || item.confidence < settings.reviewConfidence || missingPrice || missingLocation) return "needs_review";
   return "new";
 }
 
@@ -641,7 +752,7 @@ export function saveExtractedCard(input: {
       input.item.city,
       input.item.area,
       input.item.price,
-      input.item.currency || "AED",
+      input.item.currency || getSettings().currency,
       input.item.bedrooms,
       input.item.bathrooms,
       input.item.size_sqm,
@@ -684,7 +795,7 @@ export function saveExtractedCard(input: {
       keep(input.item.city, sameChat.city),
       keep(input.item.area, sameChat.area),
       input.item.price ?? sameChat.price,
-      input.item.currency || sameChat.currency || "AED",
+      input.item.currency || sameChat.currency || getSettings().currency,
       input.item.bedrooms ?? sameChat.bedrooms,
       input.item.bathrooms ?? sameChat.bathrooms,
       input.item.size_sqm ?? sameChat.size_sqm,
@@ -723,6 +834,39 @@ export function updateCardDesk(id: string, input: { broker?: string | null; next
       id,
     );
   return true;
+}
+
+export function deleteCard(id: string) {
+  const db = getDb();
+  if (!db.prepare("SELECT id FROM cards WHERE id = ?").get(id)) return false;
+  db.prepare("DELETE FROM follow_ups WHERE card_id = ?").run(id);
+  db.prepare("DELETE FROM card_messages WHERE card_id = ?").run(id);
+  db.prepare("DELETE FROM cards WHERE id = ?").run(id);
+  return true;
+}
+
+export function deleteFollowUp(id: string) {
+  return getDb().prepare("DELETE FROM follow_ups WHERE id = ?").run(id).changes > 0;
+}
+
+export function deleteDeveloper(id: string) {
+  const db = getDb();
+  if (!db.prepare("SELECT id FROM companies WHERE id = ?").get(id)) return false;
+  db.prepare("UPDATE suppliers SET company_id = NULL WHERE company_id = ?").run(id);
+  db.prepare("DELETE FROM companies WHERE id = ?").run(id);
+  return true;
+}
+
+export function deleteEmployee(id: string) {
+  const db = getDb();
+  if (!db.prepare("SELECT id FROM suppliers WHERE id = ?").get(id)) return false;
+  db.prepare("UPDATE cards SET supplier_id = NULL WHERE supplier_id = ?").run(id);
+  db.prepare("DELETE FROM suppliers WHERE id = ?").run(id);
+  return true;
+}
+
+export function deleteChat(jid: string) {
+  return getDb().prepare("DELETE FROM chats WHERE jid = ?").run(jid).changes > 0;
 }
 
 export function listFollowUps(cardId: string) {
@@ -764,7 +908,7 @@ export function createCard(input: {
         id, chat_jid, sender_name, sender_phone, kind, purpose, property_type, title,
         city, area, price, currency, bedrooms, bathrooms, size_sqm, summary, confidence,
         status, broker, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AED', ?, NULL, NULL, ?, 1, 'new', ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 1, 'new', ?, ?, ?)`,
     )
     .run(
       id,
@@ -778,6 +922,7 @@ export function createCard(input: {
       input.city,
       input.area,
       input.price,
+      getSettings().currency,
       input.bedrooms,
       input.summary,
       input.broker,
@@ -791,7 +936,7 @@ export function createCard(input: {
   return id;
 }
 
-export function queueReply(chatJid: string, body: string, media?: { file: string; mime: string } | null) {
+export function queueReply(chatJid: string, body: string, media?: { file: string; mime: string } | null, notBefore?: number | null) {
   const text = body.trim();
   if ((!text && !media?.file) || text.length > 4000) return null;
   const chat = getDb().prepare("SELECT jid FROM chats WHERE jid = ?").get(chatJid);
@@ -799,17 +944,17 @@ export function queueReply(chatJid: string, body: string, media?: { file: string
   const id = randomUUID();
   getDb()
     .prepare(
-      "INSERT INTO outbox (id, chat_jid, body, media_file, media_mime, status, error, created_at, sent_at) VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL)",
+      "INSERT INTO outbox (id, chat_jid, body, media_file, media_mime, status, error, created_at, sent_at, not_before) VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?)",
     )
-    .run(id, chatJid, text, media?.file || null, media?.mime || null, Date.now());
+    .run(id, chatJid, text, media?.file || null, media?.mime || null, Date.now(), notBefore ?? null);
   return id;
 }
 
 export function claimReplies() {
   const db = getDb();
   const rows = db
-    .prepare("SELECT id, chat_jid, body, media_file, media_mime FROM outbox WHERE status = 'pending' ORDER BY created_at ASC LIMIT 5")
-    .all() as Array<{ id: string; chat_jid: string; body: string; media_file: string | null; media_mime: string | null }>;
+    .prepare("SELECT id, chat_jid, body, media_file, media_mime FROM outbox WHERE status = 'pending' AND (not_before IS NULL OR not_before <= ?) ORDER BY created_at ASC LIMIT 1")
+    .all(Date.now()) as Array<{ id: string; chat_jid: string; body: string; media_file: string | null; media_mime: string | null }>;
   const claim = db.prepare("UPDATE outbox SET status = 'sending' WHERE id = ? AND status = 'pending'");
   return rows.filter((row) => claim.run(row.id).changes > 0);
 }
@@ -822,13 +967,7 @@ export function finishReply(id: string, status: "sent" | "failed", error: string
 
 export function stats() {
   const db = getDb();
-  const day = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Dubai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  const start = Date.parse(`${day}T00:00:00+04:00`);
+  const { start, end } = zonedDayRange(getSettings().timezone);
   const count = (sql: string, ...params: Array<string | number>) =>
     (db.prepare(sql).get(...params) as { n: number }).n;
   return {
@@ -845,8 +984,24 @@ export function stats() {
     land: count("SELECT COUNT(*) AS n FROM cards WHERE property_type = 'land' AND status != 'closed'"),
     viewings: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'viewing'"),
     offers: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'offer'"),
+    fresh: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'new'"),
+    contacted: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'contacted'"),
     unassigned: count("SELECT COUNT(*) AS n FROM cards WHERE status != 'closed' AND (broker IS NULL OR broker = '')"),
     pendingSort: count("SELECT COUNT(*) AS n FROM messages WHERE processed = 0"),
     messages: count("SELECT COUNT(*) AS n FROM messages"),
+    followUps: count(
+      "SELECT COUNT(*) AS n FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ?",
+      end,
+    ),
+    failedReplies: count("SELECT COUNT(*) AS n FROM outbox WHERE status = 'failed'"),
   };
+}
+
+export function dueFollowUps(limit = 5) {
+  const { end } = zonedDayRange(getSettings().timezone);
+  return getDb()
+    .prepare(
+      "SELECT id, kind, title, next_follow_up FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ? ORDER BY next_follow_up ASC LIMIT ?",
+    )
+    .all(end, limit) as Array<{ id: string; kind: string; title: string | null; next_follow_up: number }>;
 }
