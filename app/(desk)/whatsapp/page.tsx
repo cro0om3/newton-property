@@ -22,6 +22,14 @@ export default function WhatsAppPage() {
   }, []);
 
   const state = status?.state || "offline";
+  const [busy, setBusy] = useState(false);
+
+  async function disconnect() {
+    if (!window.confirm("Disconnect this WhatsApp number? A new code will appear so you can link a different phone.")) return;
+    setBusy(true);
+    await fetch("/api/whatsapp", { method: "POST" });
+    setBusy(false);
+  }
 
   return (
     <div className="h-full min-h-0 flex-1 overflow-auto px-8 py-7">
@@ -57,6 +65,11 @@ export default function WhatsAppPage() {
           <p className="mt-5 text-sm leading-6 text-muted">
             Leave this computer on and online. If it sleeps, new messages wait until it wakes. People still message your same number.
           </p>
+          {state === "connected" ? (
+            <button type="button" onClick={() => void disconnect()} disabled={busy} className="mt-5 rounded-xl border border-line px-4 py-2 text-sm font-medium text-clay disabled:opacity-50">
+              {busy ? "Disconnecting..." : "Disconnect WhatsApp"}
+            </button>
+          ) : null}
           {status?.lastError ? <p className="mt-4 text-sm text-clay">{status.lastError}</p> : null}
           {!status?.openai ? (
             <p className="mt-4 text-sm text-clay">

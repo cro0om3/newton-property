@@ -23,7 +23,6 @@ export default function SettingsPage() {
   const [brokerText, setBrokerText] = useState("");
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
-  const [accessCode, setAccessCode] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-6.1-sol");
   const [showKey, setShowKey] = useState(false);
@@ -93,7 +92,6 @@ export default function SettingsPage() {
       return;
     }
     setSecrets(body.secrets);
-    setAccessCode("");
     setOpenaiKey("");
     if (body.signedOut) {
       window.location.href = "/";
@@ -296,12 +294,8 @@ export default function SettingsPage() {
           </Field>
         </Section>
 
-        <Section title="Access" hint="Changing the access code signs this computer out.">
-          <p className="text-sm text-muted">{secrets.accessCodeSet ? "An access code is set." : "No access code is set."}</p>
-          <Field label="New access code">
-            <input type="password" value={accessCode} onChange={(event) => setAccessCode(event.target.value)} autoComplete="new-password" className={inputClass} />
-          </Field>
-          <button type="button" onClick={() => void saveSecrets({ accessCode })} className="rounded-xl border border-line px-3 py-2 text-sm font-medium">Update access code</button>
+        <Section title="Access" hint="Every computer that runs Start Newton uses this code.">
+          <p className="text-sm font-medium">Access code: 1234</p>
         </Section>
       </div>
     </div>

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import makeWASocket, {
   Browsers,
@@ -603,6 +602,33 @@ console.log("Open http://localhost:3000");
 if (!hasOpenAiKey()) {
   console.log("Add OPENAI_API_KEY to .env and restart. Messages will be saved, then sorted.");
 }
+const logoutFile = path.join(process.cwd(), "data", "wa-logout");
+
+async function takeLogout() {
+  if (!existsSync(logoutFile)) return;
+  rmSync(logoutFile, { force: true });
+  console.log("Disconnecting WhatsApp");
+  if (liveSock) {
+    try {
+      await liveSock.logout();
+      return;
+    } catch (error) {
+      console.error("WhatsApp logout failed", error);
+    }
+  }
+  generation += 1;
+  liveSock = null;
+  rmSync(sessionDir(), { recursive: true, force: true });
+  publish({
+    state: "reconnecting",
+    qrDataUrl: null,
+    phone: null,
+    lastError: "Scan the new code to link a different number.",
+  });
+  setTimeout(() => void connect(), 500);
+}
+
+setInterval(() => void takeLogout(), 1000);
 setInterval(() => publish({}), 5000);
 setInterval(sweep, 45000);
 setInterval(() => void flushReplies(), 2500);

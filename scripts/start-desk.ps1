@@ -28,19 +28,34 @@ function Test-Port([int] $Port) {
 }
 
 function New-DeskEnv {
-  $code = -join ((1..6) | ForEach-Object { Get-Random -Minimum 0 -Maximum 10 })
   $bytes = New-Object byte[] 32
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $secret = ($bytes | ForEach-Object { $_.ToString("x2") }) -join ""
   @(
-    "ACCESS_CODE=$code"
+    "ACCESS_CODE=1234"
     "SESSION_SECRET=$secret"
     "OPENAI_API_KEY="
     "OPENAI_MODEL=gpt-6.1-sol"
     "OPENAI_TRANSCRIBE_MODEL=gpt-transcribe"
     "OPENAI_REASONING=low"
   ) | Set-Content -Path (Join-Path $Root ".env") -Encoding ascii
-  return $code
+}
+
+function Set-AccessCode {
+  $path = Join-Path $Root ".env"
+  if (-not (Test-Path $path)) { return }
+  $lines = @(Get-Content $path)
+  $found = $false
+  $next = foreach ($line in $lines) {
+    if ($line -match '^\s*ACCESS_CODE=') {
+      $found = $true
+      "ACCESS_CODE=1234"
+    } else {
+      $line
+    }
+  }
+  if (-not $found) { $next += "ACCESS_CODE=1234" }
+  Set-Content -Path $path -Value $next -Encoding ascii
 }
 
 Say ""
@@ -85,20 +100,23 @@ if (-not (Test-Path (Join-Path $Root "node_modules"))) {
   Say "Install finished."
 }
 
-$freshCode = $null
 if (-not (Test-Path (Join-Path $Root ".env"))) {
-  $freshCode = New-DeskEnv
-  Say ""
-  Say "First access code: $freshCode"
-  Say "Sign in with this code. You can change it later in Settings."
-  Say "Then link WhatsApp and add the ChatGPT key in Settings."
-  Say ""
+  New-DeskEnv
 }
+Set-AccessCode
+Say ""
+Say "Sign in with 1234."
+Say "Then link WhatsApp and add the ChatGPT key in Settings."
+Say ""
 
 if (Test-Port 3000) {
-  Say "The desk is already running. Opening the page."
-  Start-Process "http://localhost:3000"
-  exit 0
+  & curl.exe -fsS --max-time 2 -o NUL http://127.0.0.1:3000
+  if ($LASTEXITCODE -eq 0) {
+    Say "The desk is already running. Opening the page."
+    Start-Process "http://localhost:3000"
+    exit 0
+  }
+  Fail "Port 3000 is used by another program. Close it, then run Start again."
 }
 
 Say "Starting. The browser opens when the desk is ready."
