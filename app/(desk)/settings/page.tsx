@@ -260,14 +260,14 @@ export default function SettingsPage() {
             <Link href="/whatsapp" className="rounded-xl bg-pine px-3 py-2 text-sm font-medium text-white">Open link</Link>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Keep chats" hint="Days">
-              <input type="number" min={7} max={365} value={settings.historyDays} onChange={(event) => patch("historyDays", Number(event.target.value))} className={inputClass} />
+            <Field label="Keep chats" hint="Last 7 days. New messages still arrive from any number.">
+              <input type="number" min={1} max={7} value={settings.historyDays} onChange={(event) => patch("historyDays", Number(event.target.value))} className={inputClass} />
             </Field>
             <Field label="Sort recent" hint="Hours">
               <input type="number" min={1} max={168} value={settings.analyzeHours} onChange={(event) => patch("analyzeHours", Number(event.target.value))} className={inputClass} />
             </Field>
-            <Field label="Download media" hint="Days">
-              <input type="number" min={1} max={180} value={settings.mediaDays} onChange={(event) => patch("mediaDays", Number(event.target.value))} className={inputClass} />
+            <Field label="Download media" hint="Last 7 days">
+              <input type="number" min={1} max={7} value={settings.mediaDays} onChange={(event) => patch("mediaDays", Number(event.target.value))} className={inputClass} />
             </Field>
           </div>
           <label className="flex items-center gap-2 text-sm text-muted">

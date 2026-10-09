@@ -10,6 +10,7 @@ import makeWASocket, {
   isJidGroup,
   isJidStatusBroadcast,
   normalizeMessageContent,
+  proto,
   useMultiFileAuthState,
   type Chat,
   type WAMessage,
@@ -505,8 +506,16 @@ async function connect() {
     version,
     browser: Browsers.windows("Chrome"),
     markOnlineOnConnect: false,
-    syncFullHistory: true,
-    shouldSyncHistoryMessage: () => true,
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: ({ syncType }) => {
+      const kind = proto.HistorySync.HistorySyncType;
+      return (
+        syncType === kind.INITIAL_BOOTSTRAP ||
+        syncType === kind.PUSH_NAME ||
+        syncType === kind.RECENT ||
+        syncType === kind.NON_BLOCKING_DATA
+      );
+    },
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -533,7 +542,7 @@ async function connect() {
     const recent = messages
       .filter((message) => messageTime(message) >= Date.now() - keepMs())
       .sort((a, b) => messageTime(a) - messageTime(b))
-      .slice(-5000);
+      .slice(-800);
     for (const message of recent) await ingest(message, "history", sock);
   });
   sock.ev.on("connection.update", (update) => {
