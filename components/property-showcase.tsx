@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import { WhatsAppLink } from "@/components/whatsapp-link";
-import { listingCriteria } from "@/lib/facts";
+import { stockNote } from "@/lib/facts";
 import { formatPhone, formatPrice, formatRooms, label, PROPERTY_LABELS, PURPOSE_LABELS } from "@/lib/format";
 import type { CardExtra, CardRow, SupplierRow } from "@/lib/types";
 
@@ -27,10 +27,12 @@ export function PropertyShowcase({
   card,
   files,
   supplier,
+  sources = [],
 }: {
   card: CardRow;
   files: string[];
   supplier: SupplierRow | null;
+  sources?: { file: string; name: string }[];
 }) {
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
@@ -49,15 +51,18 @@ export function PropertyShowcase({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, files.length]);
 
-  const file = listingCriteria(card, files.length > 0, Boolean(supplier?.company_name));
   const sample = (extra.reference || "").startsWith("SAMPLE");
+  const rooms = card.property_type === "apartment" || card.property_type === "villa" || card.property_type === "townhouse" || !card.property_type;
+  const dated = card.property_type === "apartment" || card.property_type === "villa" || card.property_type === "townhouse" || !card.property_type;
 
   const facts = [
     { icon: "building" as const, value: label(PROPERTY_LABELS, card.property_type) },
-    ...(card.property_type === "land" ? [] : [
-      { icon: "bed" as const, value: card.bedrooms === null ? "N/A" : formatRooms(card.bedrooms) },
-      { icon: "bath" as const, value: card.bathrooms === null ? "N/A" : String(card.bathrooms) },
-    ]),
+    ...(rooms
+      ? [
+          { icon: "bed" as const, value: card.bedrooms === null ? "N/A" : formatRooms(card.bedrooms) },
+          { icon: "bath" as const, value: card.bathrooms === null ? "N/A" : String(card.bathrooms) },
+        ]
+      : []),
     { icon: "size" as const, value: sizeLabel(card.size_sqm) },
   ];
 
@@ -97,7 +102,10 @@ export function PropertyShowcase({
 
         <div className="desk-card rounded-2xl border border-line bg-panel p-5">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-3xl font-semibold tracking-tight text-leaf">{formatPrice(card.price, card.currency)}</p>
+            <div>
+              <p className="text-3xl font-semibold tracking-tight text-leaf">{formatPrice(card.price, card.currency)}</p>
+              {stockNote(card) ? <p className="mt-1 text-sm font-medium text-clay">{stockNote(card)}</p> : null}
+            </div>
             {sample ? <span className="rounded-full bg-sand px-2.5 py-1 text-[11px] font-semibold text-pine">Sample</span> : null}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -115,26 +123,19 @@ export function PropertyShowcase({
             <Icon name="pin" className="h-4 w-4" />
             {[card.area, card.city].filter(Boolean).join(", ") || "N/A"}
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">{label(PURPOSE_LABELS, card.purpose)}</span>
-            <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">Handover {extra.handover || "N/A"}</span>
-            <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">{plan || "Payment plan N/A"}</span>
-          </div>
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium">{card.kind === "inquiry" ? "Client file" : "Listing file"}</span>
-              <span className="text-muted">{file.done} of {file.total}</span>
-            </div>
-            <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-sand">
-              <span className="block h-1.5 rounded-full bg-pine" style={{ width: `${Math.round((file.done / file.total) * 100)}%` }} />
-            </span>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {file.items.map((item) => (
-                <span key={item.label} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${item.ok ? "bg-sand text-pine" : "bg-paper text-muted"}`}>
-                  {item.ok ? item.label : `${item.label} missing`}
-                </span>
+          {sources.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {sources.map((source) => (
+                <a key={source.file} href={`/api/media/${source.file}`} target="_blank" rel="noreferrer" className="rounded-xl bg-pine px-3 py-2 text-sm font-medium text-white">
+                  Source PDF
+                </a>
               ))}
             </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">{label(PURPOSE_LABELS, card.purpose)}</span>
+            {dated && extra.handover ? <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">Handover {extra.handover}</span> : null}
+            {plan ? <span className="rounded-full bg-sand px-3 py-1 text-xs font-medium text-pine">{plan}</span> : null}
           </div>
 
           <div className="mt-5 flex gap-3 rounded-2xl border border-line bg-paper p-4">

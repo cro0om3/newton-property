@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
-import { dueFollowUps, listCards, stats } from "@/lib/db";
+import { listCards, stats } from "@/lib/db";
 import { readStatus } from "@/lib/status";
+import { officeLate, todayWork } from "@/lib/work";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const totals = stats();
+export async function GET(request: Request) {
+  const assignee = new URL(request.url).searchParams.get("assignee") || "";
+  const totals = stats(assignee);
   const whatsapp = readStatus();
-  const followUps = dueFollowUps();
+  const followUps = todayWork(assignee);
   const alerts = [];
   if (whatsapp.state !== "connected") {
     alerts.push({
@@ -66,19 +68,21 @@ export async function GET() {
       href: "/inbox",
     });
   }
-  for (const row of followUps) {
+  for (const row of followUps.filter((item) => item.action === "Call")) {
     alerts.push({
-      id: `follow-${row.id}-${row.next_follow_up}`,
-      title: row.title || "Follow-up due",
-      body: "Due today or already overdue.",
-      href: row.kind === "inquiry" ? `/clients/${row.id}` : `/properties/${row.id}`,
+      id: row.id,
+      title: row.title,
+      body: row.detail,
+      href: row.href,
     });
   }
   return NextResponse.json({
     ...totals,
-    recent: listCards({ kind: "listing", limit: 4 }),
-    recentClients: listCards({ kind: "inquiry", limit: 4 }),
-    followUpCards: followUps,
+    recent: listCards({ kind: "listing", broker: assignee || undefined, limit: 4 }),
+    recentClients: listCards({ kind: "inquiry", broker: assignee || undefined, limit: 4 }),
+    today: followUps,
+    office: assignee ? [] : officeLate(),
+    followUpCards: [],
     alerts,
     whatsapp,
   });

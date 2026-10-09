@@ -47,6 +47,36 @@ const SCHEMA = {
           summary: { type: "string" },
           confidence: { type: "number" },
           needs_review: { type: "boolean" },
+          details: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              unit: { type: ["string", "null"] },
+              floor: { type: ["string", "null"] },
+              parking: { type: ["string", "null"] },
+              view: { type: ["string", "null"] },
+              furnished: { type: ["boolean", "null"] },
+              handover: { type: ["string", "null"] },
+              plot: { type: ["string", "null"] },
+              planLabel: { type: ["string", "null"] },
+              maid: { type: ["boolean", "null"] },
+              storeys: { type: ["string", "null"] },
+              unitCount: { type: ["string", "null"] },
+              plans: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    name: { type: "string" },
+                    price: { type: "number" },
+                  },
+                  required: ["name", "price"],
+                },
+              },
+            },
+            required: ["unit", "floor", "parking", "view", "furnished", "handover", "plot", "planLabel", "maid", "storeys", "unitCount", "plans"],
+          },
         },
         required: [
           "match_card_id",
@@ -64,6 +94,7 @@ const SCHEMA = {
           "summary",
           "confidence",
           "needs_review",
+          "details",
         ],
       },
     },
@@ -88,11 +119,15 @@ purpose:
 
 Rules:
 - Write title and summary in English. Keep place names in their usual English form when you know it (Al Ain, Dubai Marina). Otherwise keep the sender's place name.
-- Do not invent price, size, bedrooms, bathrooms, city, or area. Use null when missing.
+- Do not invent price, size, bedrooms, bathrooms, city, or area. Use null when missing. A [Floor plan] block, or room labels printed on a plan, may set bathrooms and details.maid. Count each room labeled Bath, Bathroom, or BR as one bathroom. A label P.R or Powder is a powder room: mention it in the summary and do not add it to the bathroom count. details.maid is true when a room is labeled Maid or Maids Room. Set needs_review true and say in the summary that these were read from the floor plan.
 - Default currency to AED when a number is clearly money and no currency is stated.
 - If several photos and texts belong to the same property, return one item.
-- When a message includes text extracted from a PDF, read the whole text, not only the caption. One PDF can contain several units. Create one item per unit, including price, size, bedrooms, floor, payment plan, and handover date when they are written.
-- If the new messages continue an existing open card, set match_card_id to that card id. Otherwise null.
+- When a message includes text extracted from a PDF, or a block starting with [Brochure page] or [Floor plan], read the whole block, not only the caption. [Brochure page] was copied from the picture. [Floor plan] counts labeled rooms on the drawing. If a plan lists several unit numbers for one type, create one item per unit number and copy the shared bedrooms, bathrooms, maid, and size onto each. Copy a dirham price only onto the unit number written next to that price. Leave price null on the others and set needs_review true. Say in the summary that the price was not printed for this unit and that bathrooms or the maid's room were read from the floor plan.
+- From a [Floor plan] line for that unit, set bathrooms to the counted number and details.maid to true or false. If that unit has no floor-plan line, leave bathrooms null and details.maid null. Set needs_review true and say in the summary that the bathrooms or maid's room were read from the floor plan.
+- Put the printed unit, floor, parking, view, furnished flag, handover, and plot in details. Use null when that exact fact is not printed. Do not infer the floor from the unit number. If the page gives payment percentages but no dirham price, put that schedule in details.planLabel and leave details.plans empty.
+- Ask for facts that belong to the property type, and leave the rest null. Apartment: bedrooms, bathrooms, maid, size, floor, unit, handover. Villa or townhouse: bedrooms, bathrooms, maid, plot, built-up size, parking, handover; no floor and no unit. Land: plot or size, price, and location only. Office: size, floor, parking, and furnished; no bedrooms or maid. Warehouse: size, price, and location only. Building: one whole building, with plot, built-up size, details.storeys, and details.unitCount; no bedrooms, bathrooms, maid, or unit.
+- Put each named price in details.plans. price on the item is the lowest printed purchase price. If the page shows only square feet, set size_sqm to square feet times 0.092903 rounded to 2 decimals, and quote the printed square feet in the summary. If both are printed, use the printed square metres.
+- If a reply gives a missing fact for a unit that already has an open card, set match_card_id to that card and fill only the facts written in the reply. Do not open a second card for the same unit number. Do not copy a price onto a unit number that is not written next to that price.
 - Set needs_review true when the property is real but important fields are missing or the message is ambiguous.
 - confidence is from 0 to 1.`;
 
@@ -120,10 +155,21 @@ export async function transcribeVoice(fileName: string, mime: string | null) {
   return result.text?.trim() || null;
 }
 
+function cleanText(value: string | null | undefined) {
+  const text = value?.trim();
+  return text ? text : null;
+}
+
 function cleanItem(raw: ExtractedCard): ExtractedCard | null {
   if (!KINDS.has(raw.kind) || !PURPOSES.has(raw.purpose)) return null;
   const propertyType = TYPES.has(raw.property_type) ? raw.property_type : "other";
   const confidence = Math.min(1, Math.max(0, Number(raw.confidence) || 0));
+  const plans = (raw.details?.plans || [])
+    .filter((plan) => plan && plan.name?.trim() && Number(plan.price) > 0)
+    .slice(0, 4)
+    .map((plan) => ({ name: plan.name.trim(), price: Number(plan.price) }));
+  const lowest = plans.length ? Math.min(...plans.map((plan) => plan.price)) : null;
+  const price = raw.price ?? lowest;
   return {
     ...raw,
     match_card_id: raw.match_card_id && raw.match_card_id !== "null" ? raw.match_card_id : null,
@@ -131,10 +177,25 @@ function cleanItem(raw: ExtractedCard): ExtractedCard | null {
     title: raw.title?.trim() || `${propertyType} ${raw.kind}`,
     city: raw.city?.trim() || null,
     area: raw.area?.trim() || null,
-    currency: raw.currency?.trim() || (raw.price != null ? getSettings().currency : null),
+    price,
+    currency: raw.currency?.trim() || (price != null ? getSettings().currency : null),
     summary: raw.summary?.trim() || "",
     confidence,
     needs_review: Boolean(raw.needs_review) || confidence < getSettings().reviewConfidence,
+    details: {
+      unit: cleanText(raw.details?.unit),
+      floor: cleanText(raw.details?.floor),
+      parking: cleanText(raw.details?.parking),
+      view: cleanText(raw.details?.view),
+      furnished: raw.details?.furnished ?? null,
+      handover: cleanText(raw.details?.handover),
+      plot: cleanText(raw.details?.plot),
+      planLabel: cleanText(raw.details?.planLabel),
+      maid: raw.details?.maid ?? null,
+      storeys: cleanText(raw.details?.storeys),
+      unitCount: cleanText(raw.details?.unitCount),
+      plans,
+    },
   };
 }
 
@@ -177,6 +238,13 @@ export async function analyzeChat(input: {
     purpose: card.purpose,
     property_type: card.property_type,
     title: card.title,
+    unit: (() => {
+      try {
+        return (JSON.parse(card.extra || "{}") as { unit?: string }).unit || null;
+      } catch {
+        return null;
+      }
+    })(),
     city: card.city,
     area: card.area,
     price: card.price,

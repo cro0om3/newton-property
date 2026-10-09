@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createCard, listCards } from "@/lib/db";
+import { createCard, listCardFiles, listCards } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
@@ -15,8 +15,19 @@ export async function GET(request: Request) {
     q: url.searchParams.get("q") || undefined,
     supplierId: url.searchParams.get("supplier") || undefined,
     developerId: url.searchParams.get("developer") || undefined,
+    broker: url.searchParams.get("assignee") || undefined,
   });
-  return NextResponse.json({ cards });
+  const files = listCardFiles();
+  const withFiles = cards.map((card) => ({
+    ...card,
+    sources: files
+      .filter((file) => file.cardId === card.id)
+      .map((file) => ({
+        file: file.file,
+        name: (file.body || "").split("\n").find((line) => line.toLowerCase().includes(".pdf"))?.trim() || file.file,
+      })),
+  }));
+  return NextResponse.json({ cards: withFiles });
 }
 
 export async function POST(request: Request) {

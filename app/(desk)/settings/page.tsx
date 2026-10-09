@@ -8,7 +8,7 @@ import type { WaStatus } from "@/lib/status";
 const ZONES = ["Asia/Dubai", "Asia/Riyadh", "Asia/Qatar", "Asia/Kuwait", "Europe/London", "UTC"];
 const CURRENCIES = ["AED", "SAR", "QAR", "USD", "EUR", "GBP"];
 
-type Secrets = { accessCodeSet: boolean; openaiKeySet: boolean; openaiModel: string };
+type Secrets = { accessCodeSet: boolean; openaiKeySet: boolean; openaiModel: string; social?: Record<string, boolean> };
 
 type Payload = {
   settings: DeskSettings;
@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [social, setSocial] = useState<Record<string, string>>({});
   const [openaiModel, setOpenaiModel] = useState("gpt-6.1-sol");
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -78,7 +79,7 @@ export default function SettingsPage() {
     setSaved("Saved. The desk is using these settings.");
   }
 
-  async function saveSecrets(payload: { accessCode?: string; openaiKey?: string; openaiModel?: string; clearOpenai?: boolean }) {
+  async function saveSecrets(payload: { accessCode?: string; openaiKey?: string; openaiModel?: string; clearOpenai?: boolean; social?: Record<string, string> }) {
     setError("");
     setSaved("");
     const response = await fetch("/api/settings", {
@@ -98,7 +99,8 @@ export default function SettingsPage() {
       return;
     }
     if (body.secrets?.openaiModel) setOpenaiModel(body.secrets.openaiModel);
-    setSaved(payload.accessCode ? "Access code updated." : "ChatGPT API saved. The next message can be sorted.");
+    setSaved(payload.accessCode ? "Access code updated." : payload.social ? "Social keys saved. Connect is ready on the Link page." : "ChatGPT API saved. The next message can be sorted.");
+    if (payload.social) setSocial({});
   }
 
   async function testKey() {
@@ -195,6 +197,10 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        <Section className="xl:col-span-2" title="Social apps" hint="Paste the keys from each developer site. They stay on this computer and are never shown again. Connect turns on in Link after you save.">
+          <SocialKeys saved={secrets.social || {}} values={social} onChange={setSocial} onSave={() => void saveSecrets({ social })} />
+        </Section>
+
         <Section title="Office" hint="Used on the sidebar, drafts, Excel, and the broker PDF.">
           <div className="flex items-center gap-4">
             <img src={settings.logo} alt="" className="h-16 w-28 rounded-xl bg-sand object-contain" />
@@ -226,7 +232,7 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        <Section title="Team" hint="Brokers you can pick on a property or client. The default is used when a new record has no broker.">
+        <Section title="Team" hint="The owner sees every record. A name chosen from the account menu sees only the records assigned to that broker.">
           <Field label="Brokers" hint="One name on each line.">
             <textarea value={brokerText} onChange={(event) => setBrokerText(event.target.value)} rows={5} className={inputClass} />
           </Field>
@@ -297,6 +303,54 @@ export default function SettingsPage() {
         <Section title="Access" hint="Every computer that runs Start Newton uses this code.">
           <p className="text-sm font-medium">Access code: 1234</p>
         </Section>
+      </div>
+    </div>
+  );
+}
+
+const SOCIAL_FIELDS = [
+  ["META_APP_ID", "Facebook app ID"],
+  ["META_APP_SECRET", "Facebook app secret"],
+  ["META_VERIFY_TOKEN", "Facebook verify token"],
+  ["TIKTOK_CLIENT_KEY", "TikTok client key"],
+  ["TIKTOK_CLIENT_SECRET", "TikTok client secret"],
+  ["LINKEDIN_CLIENT_ID", "LinkedIn client ID"],
+  ["LINKEDIN_CLIENT_SECRET", "LinkedIn client secret"],
+  ["GOOGLE_CLIENT_ID", "YouTube client ID"],
+  ["GOOGLE_CLIENT_SECRET", "YouTube client secret"],
+  ["X_CLIENT_ID", "X client ID"],
+  ["X_CLIENT_SECRET", "X client secret"],
+] as const;
+
+function SocialKeys({
+  saved,
+  values,
+  onChange,
+  onSave,
+}: {
+  saved: Record<string, boolean>;
+  values: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {SOCIAL_FIELDS.map(([key, label]) => (
+        <Field key={key} label={label} hint={saved[key] ? "Saved. Paste a new value to replace it." : "Not saved yet."}>
+          <input
+            type="password"
+            value={values[key] || ""}
+            onChange={(event) => onChange({ ...values, [key]: event.target.value })}
+            autoComplete="off"
+            spellCheck={false}
+            className={inputClass}
+          />
+        </Field>
+      ))}
+      <div className="sm:col-span-2">
+        <button type="button" onClick={onSave} disabled={!SOCIAL_FIELDS.some(([key]) => (values[key] || "").trim())} className="rounded-xl bg-pine px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+          Save social keys
+        </button>
       </div>
     </div>
   );

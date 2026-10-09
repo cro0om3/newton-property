@@ -17,6 +17,8 @@ import makeWASocket, {
 import pino from "pino";
 import QRCode from "qrcode";
 import { analyzeChat, hasOpenAiKey, transcribeVoice } from "../lib/analyze";
+import { pullTelegram } from "../lib/official";
+import { readBrochure } from "../lib/brochure";
 import { pdfText, savePdfImages } from "../lib/pdf";
 import {
   claimReplies,
@@ -24,6 +26,8 @@ import {
   clearLidPhones,
   contactName,
   finishReply,
+  findCardForUnit,
+  markSheetCoverage,
   insertMessage,
   listPrivateLids,
   listUnnamedGroups,
@@ -31,6 +35,7 @@ import {
   markProcessed,
   mediaDir,
   openCards,
+  openUnitNumbers,
   recentContext,
   rememberPhone,
   saveExtractedCard,
@@ -216,6 +221,24 @@ async function processChat(chatJid: string) {
           console.error("Voice transcription failed", error);
         }
       }
+      if (
+        message.media_file?.toLowerCase().endsWith(".pdf") &&
+        !message.body?.includes("[Brochure page ")
+      ) {
+        try {
+          const file = path.join(mediaDir(), path.basename(message.media_file));
+          if (existsSync(file)) {
+            const transcript = await readBrochure(readFileSync(file));
+            if (transcript) {
+              const body = `${message.body || ""}\n\n${transcript}`.slice(0, 100000);
+              updateMessageBody(message.id, body);
+              message.body = body;
+            }
+          }
+        } catch (error) {
+          console.error("Brochure reading failed", error);
+        }
+      }
     }
     const context = recentContext(chatJid);
     const items = await analyzeChat({
@@ -223,8 +246,26 @@ async function processChat(chatJid: string) {
       newIds: fresh.map((message) => message.id),
       cards: openCards(chatJid),
     });
+    const spoken = fresh.map((message) => message.body || "").join("\n");
+    const known = openUnitNumbers(chatJid);
     const sender = [...fresh].reverse().find((message) => !message.from_me) || fresh[fresh.length - 1];
     for (const item of items) {
+      const named = known.filter((unit) => new RegExp(`(?<!\\d)${unit.key}(?!\\d)`).test(spoken));
+      if (!item.details.unit && named.length === 1) {
+        item.details.unit = named[0].key;
+        item.match_card_id = named[0].id;
+      }
+      const unit = item.details.unit || "";
+      const key = unit.match(/(\d{3,6})(?!.*\d)/)?.[1] || "";
+      if (item.price != null && key) {
+        const at = spoken.search(new RegExp(`(?<!\\d)${key}(?!\\d)`));
+        const slice = at < 0 ? "" : spoken.slice(Math.max(0, at - 90), at + key.length + 90);
+        if (!/\d[\d,]{4,}/.test(slice)) item.price = null;
+      }
+      if (!item.match_card_id && unit) {
+        const found = findCardForUnit(chatJid, unit);
+        if (found) item.match_card_id = found.id;
+      }
       saveExtractedCard({
         chatJid,
         senderName: sender?.sender_name || null,
@@ -233,6 +274,10 @@ async function processChat(chatJid: string) {
         item,
       });
     }
+    markSheetCoverage(
+      chatJid,
+      items.map((item) => item.details.unit?.match(/(\d{3,6})(?!.*\d)/)?.[1] || "").filter(Boolean),
+    );
     markProcessed(fresh.map((message) => message.id));
     publish({ lastError: null });
     if (items.length) {
@@ -589,8 +634,12 @@ async function flushReplies() {
 
 function sweep() {
   reloadSecrets();
-  if (!getSettings().sortingEnabled || !hasOpenAiKey() || Date.now() < openaiBlockedUntil) return;
   const chats = listUnprocessed() as { chat_jid: string }[];
+  if (!chats.length) return;
+  if (!getSettings().sortingEnabled || !hasOpenAiKey() || Date.now() < openaiBlockedUntil) {
+    console.log(`Sorting waiting on ${chats.length} chat(s)`);
+    return;
+  }
   for (const chat of chats) {
     if (!timers.has(chat.chat_jid) && !busy.has(chat.chat_jid)) schedule(chat.chat_jid);
   }
@@ -631,5 +680,7 @@ async function takeLogout() {
 setInterval(() => void takeLogout(), 1000);
 setInterval(() => publish({}), 5000);
 setInterval(sweep, 45000);
+setInterval(() => void pullTelegram().catch((error) => console.error("Telegram pull failed", error)), 15000);
+sweep();
 setInterval(() => void flushReplies(), 2500);
 void connect();

@@ -22,14 +22,21 @@ const LINKS: Array<{ href: string; label: string; icon: IconName }> = [
 ];
 
 const DeskPrefsContext = createContext<DeskSettings>(DEFAULT_SETTINGS);
+const ViewerContext = createContext<{ viewer: string; setViewer: (name: string) => void }>({ viewer: "", setViewer: () => {} });
+const VIEWER_KEY = "newton-viewer";
 
 export function useDeskPrefs() {
   return useContext(DeskPrefsContext);
 }
 
+export function useViewer() {
+  return useContext(ViewerContext);
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [settings, setSettings] = useState<DeskSettings>(DEFAULT_SETTINGS);
+  const [viewer, setViewerState] = useState("");
 
   useEffect(() => {
     let stop = false;
@@ -39,6 +46,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       const body = await response.json();
       applyDeskLocale(body.settings);
       setSettings(body.settings);
+      const stored = localStorage.getItem(VIEWER_KEY) || "";
+      setViewerState(body.settings.brokers.includes(stored) ? stored : "");
     }
     void load();
     window.addEventListener(SETTINGS_EVENT, load);
@@ -48,15 +57,24 @@ export function Shell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  function setViewer(name: string) {
+    const next = settings.brokers.includes(name) ? name : "";
+    localStorage.setItem(VIEWER_KEY, next);
+    setViewerState(next);
+  }
+
+  const links = viewer ? LINKS.filter((link) => link.href !== "/settings") : LINKS;
+
   return (
     <DeskPrefsContext.Provider value={settings}>
+    <ViewerContext.Provider value={{ viewer, setViewer }}>
     <div className="flex h-screen overflow-hidden bg-paper">
       <aside className="flex w-60 shrink-0 flex-col bg-pine text-white">
         <div className="px-4 py-5">
           <Logo src={settings.logo} alt={settings.officeName} />
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3 pb-4">
-          {LINKS.map((link) => {
+          {links.map((link) => {
             const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <Link
@@ -78,6 +96,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </div>
+    </ViewerContext.Provider>
     </DeskPrefsContext.Provider>
   );
 }

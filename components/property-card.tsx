@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { WhatsAppLink } from "@/components/whatsapp-link";
-import { cardSlots } from "@/lib/facts";
+import { cardSlots, stockNote } from "@/lib/facts";
 import { formatPhone, formatPrice, formatWhen, purposeLabel, statusLabel } from "@/lib/format";
 import type { CardExtra, CardRow } from "@/lib/types";
 
@@ -51,12 +51,22 @@ export function PropertyCard({ card, onDeleted }: { card: CardRow; onDeleted?: (
           <Icon name="tag" className="h-3 w-3" />
           {card.kind === "listing" ? purposeLabel(card.purpose) : "Inquiry"}
         </span>
+        <button
+          type="button"
+          title="Delete"
+          aria-label="Delete"
+          onClick={() => void remove()}
+          className="pointer-events-auto absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-white text-clay shadow-sm hover:bg-sand"
+        >
+          <Icon name="trash" className="h-3.5 w-3.5" />
+        </button>
       </div>
       <div className="pointer-events-none relative flex flex-1 flex-col px-4 py-3.5">
         <p className="text-lg font-semibold tracking-tight text-pine">
           {plans.length > 1 ? "From " : ""}
           {formatPrice(price, card.currency)}
         </p>
+        {stockNote(card) ? <p className="mt-1 text-xs font-medium text-clay">{stockNote(card)}</p> : null}
         <h3 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug">{card.title || "Untitled property"}</h3>
         <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-muted">
           <Icon name="pin" className="h-3.5 w-3.5 shrink-0" />
@@ -81,9 +91,6 @@ export function PropertyCard({ card, onDeleted }: { card: CardRow; onDeleted?: (
             <Link href={`${href}?edit=1`} title="Edit" aria-label="Edit" className="grid h-8 w-8 place-items-center rounded-full border border-line bg-panel text-pine hover:bg-sand">
               <Icon name="pencil" className="h-3.5 w-3.5" />
             </Link>
-            <button type="button" title="Delete" aria-label="Delete" onClick={() => void remove()} className="grid h-8 w-8 place-items-center rounded-full border border-line bg-panel text-clay hover:bg-sand">
-              <Icon name="trash" className="h-3.5 w-3.5" />
-            </button>
             <WhatsAppLink phone={phone === "—" ? null : phone} />
           </span>
         </div>

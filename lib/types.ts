@@ -88,6 +88,20 @@ export type ExtractedCard = {
   summary: string;
   confidence: number;
   needs_review: boolean;
+  details: {
+    unit: string | null;
+    floor: string | null;
+    parking: string | null;
+    view: string | null;
+    furnished: boolean | null;
+    handover: string | null;
+    plot: string | null;
+    planLabel: string | null;
+    maid: boolean | null;
+    storeys: string | null;
+    unitCount: string | null;
+    plans: { name: string; price: number }[];
+  };
 };
 
 export type PaymentRow = {
@@ -115,6 +129,11 @@ export type CardExtra = {
   handover?: string | null;
   planLabel?: string | null;
   plot?: string | null;
+  maid?: boolean | null;
+  storeys?: string | null;
+  unitCount?: string | null;
+  priceLog?: { at: number; from: number; to: number }[];
+  offSheet?: number | null;
   reference?: string | null;
   plans?: PaymentPlan[];
 };
@@ -127,6 +146,7 @@ export type CardFilters = {
   q?: string;
   supplierId?: string;
   developerId?: string;
+  broker?: string;
   limit?: number;
 };
 

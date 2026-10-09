@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon, IconBadge, type IconName } from "@/components/icons";
 import { PropertyCard } from "@/components/property-card";
+import { useViewer } from "@/components/shell";
 import { deskZone } from "@/lib/format";
 import type { WaStatus } from "@/lib/status";
 import type { CardRow } from "@/lib/types";
 
 type Alert = { id: string; title: string; body: string; href: string };
-type FollowUp = { id: string; kind: string; title: string | null; next_follow_up: number };
+type WorkItem = { id: string; href: string; action: string; title: string; detail: string };
+type OfficeRow = { name: string; offers: number; overdue: number; review: number };
 
 type Stats = {
   newToday: number;
@@ -29,24 +31,27 @@ type Stats = {
   contacted: number;
   unassigned: number;
   followUps: number;
-  followUpCards: FollowUp[];
+  today: WorkItem[];
+  office: OfficeRow[];
   alerts: Alert[];
   whatsapp: WaStatus;
 };
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const { viewer } = useViewer();
 
   useEffect(() => {
     let stop = false;
     async function load() {
-      const response = await fetch("/api/stats");
+      const response = await fetch(viewer ? `/api/stats?assignee=${encodeURIComponent(viewer)}` : "/api/stats");
       if (!response.ok || stop) return;
       const body = await response.json();
       setStats({
         ...body,
         alerts: body.alerts || [],
-        followUpCards: body.followUpCards || [],
+        today: body.today || [],
+        office: body.office || [],
         recent: body.recent || [],
         recentClients: body.recentClients || [],
         whatsapp: body.whatsapp || { state: "offline", phone: null, openai: false, lastError: null, qrDataUrl: null, model: "", updatedAt: 0 },
@@ -58,7 +63,7 @@ export default function DashboardPage() {
       stop = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [viewer]);
 
   const today = new Intl.DateTimeFormat("en-GB", {
     timeZone: deskZone(),
@@ -71,7 +76,7 @@ export default function DashboardPage() {
     { label: "Properties", hint: "Still on the desk", value: stats?.listings ?? "—", href: "/properties", icon: "building" },
     { label: "Clients", hint: "Open buyers", value: stats?.inquiries ?? "—", href: "/clients", icon: "user" },
     { label: "Viewings", hint: "Booked now", value: stats?.viewings ?? "—", href: "/properties?status=viewing", icon: "calendar" },
-    { label: "Due today", hint: "Follow-ups", value: stats?.followUps ?? "—", href: "#follow-ups", icon: "check" },
+    { label: "Due today", hint: "Follow-ups", value: stats?.followUps ?? "—", href: "/dashboard", icon: "check" },
   ];
 
   const pipeline = [
@@ -97,7 +102,8 @@ export default function DashboardPage() {
           <p className="text-sm text-muted" suppressHydrationWarning>{today}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Desk overview</h1>
           <p className="mt-1 text-sm text-muted">
-            {stats ? `${stats.newToday} new today · ${stats.messages} messages saved` : "Loading the desk"}
+            {viewer ? `${viewer}'s desk` : "Whole office"}
+            {stats ? ` · ${stats.newToday} new today` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -112,6 +118,40 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      <section className="mt-5 desk-card rounded-2xl border border-line bg-panel p-5">
+        <div>
+          <h2 className="font-semibold">Today</h2>
+          <p className="mt-1 text-sm text-muted">The next jobs only. The inventory stays in Properties.</p>
+        </div>
+        <div className="mt-4 divide-y divide-line">
+          {(stats?.today || []).map((item) => (
+            <Link key={item.id} href={item.href} className="flex items-center gap-3 py-3">
+              <span className="w-16 shrink-0 rounded-full bg-sand px-2 py-1 text-center text-xs font-semibold text-pine">{item.action}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{item.title}</span>
+                <span className="block text-xs text-muted">{item.detail}</span>
+              </span>
+            </Link>
+          ))}
+          {stats && stats.today.length === 0 ? <p className="text-sm text-muted">Nothing to do. The list is clear.</p> : null}
+        </div>
+        {!viewer && stats && stats.office.length ? (
+          <div className="mt-4 border-t border-line pt-4">
+            <h3 className="text-sm font-semibold">Who is behind</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {stats.office.map((row) => (
+                <div key={row.name} className="rounded-xl bg-paper px-3 py-3 text-sm">
+                  <p className="font-medium">{row.name}</p>
+                  <p className="mt-1 text-xs text-muted">
+                    {[row.overdue ? `${row.overdue} overdue` : "", row.offers ? `${row.offers} offers` : "", row.review ? `${row.review} to approve` : ""].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
@@ -179,21 +219,6 @@ export default function DashboardPage() {
               </Link>
             ))}
             {stats && (stats.alerts || []).length === 0 ? <p className="text-sm text-muted">Nothing is waiting. The desk is clear.</p> : null}
-          </div>
-          <div className="mt-4 border-t border-line pt-4">
-            <div className="flex items-center justify-between">
-              <h3 id="follow-ups" className="text-sm font-semibold">Follow-ups due</h3>
-              <span className="text-xs text-muted">{stats?.followUps ?? 0}</span>
-            </div>
-            <div className="mt-3 space-y-2">
-              {(stats?.followUpCards || []).map((row) => (
-                <Link key={row.id} href={row.kind === "inquiry" ? `/clients/${row.id}` : `/properties/${row.id}`} className="flex items-center gap-2 text-sm">
-                  <Icon name="calendar" className="h-4 w-4 text-pine" />
-                  <span className="min-w-0 truncate">{row.title || "Untitled"}</span>
-                </Link>
-              ))}
-              {stats && (stats.followUpCards || []).length === 0 ? <p className="text-sm text-muted">No follow-up is due today.</p> : null}
-            </div>
           </div>
         </section>
       </div>

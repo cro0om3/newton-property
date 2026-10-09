@@ -461,6 +461,11 @@ export function updateCardDetails(
     extra = {};
   }
   const nextExtra = { ...extra, ...input.extra };
+  const nextPrice = input.price === undefined ? current.price : input.price;
+  if (current.price != null && nextPrice != null && current.price !== nextPrice) {
+    const log = Array.isArray(nextExtra.priceLog) ? nextExtra.priceLog : [];
+    nextExtra.priceLog = [...log, { at: Date.now(), from: current.price, to: nextPrice }].slice(-8);
+  }
   getDb()
     .prepare(
       `UPDATE cards SET title = ?, city = ?, area = ?, price = ?, bedrooms = ?, bathrooms = ?, size_sqm = ?,
@@ -470,7 +475,7 @@ export function updateCardDetails(
       input.title?.trim() || current.title,
       input.city ?? current.city,
       input.area ?? current.area,
-      input.price === undefined ? current.price : input.price,
+      nextPrice,
       input.bedrooms === undefined ? current.bedrooms : input.bedrooms,
       input.bathrooms === undefined ? current.bathrooms : input.bathrooms,
       input.sizeSqm === undefined ? current.size_sqm : input.sizeSqm,
@@ -620,9 +625,77 @@ export function markProcessed(ids: string[]) {
 export function openCards(chatJid: string) {
   return getDb()
     .prepare(
-      `${CARD_SELECT} WHERE c.chat_jid = ? AND c.status != 'closed' ORDER BY c.updated_at DESC LIMIT 8`,
+      `${CARD_SELECT} WHERE c.chat_jid = ? AND c.status != 'closed' ORDER BY c.updated_at DESC LIMIT 40`,
     )
     .all(chatJid) as CardRow[];
+}
+
+export function listCardFiles() {
+  return getDb()
+    .prepare(
+      `SELECT cm.card_id AS cardId, m.media_file AS file, m.body AS body
+       FROM card_messages cm
+       JOIN messages m ON m.id = cm.message_id
+       WHERE m.media_file IS NOT NULL AND m.media_file LIKE '%.pdf'`,
+    )
+    .all() as { cardId: string; file: string; body: string | null }[];
+}
+
+export function findCardForUnit(chatJid: string, unit: string | null) {
+  const key = (unit || "").match(/(\d{3,6})(?!.*\d)/)?.[1];
+  if (!key) return null;
+  const rows = getDb()
+    .prepare("SELECT id, title, extra FROM cards WHERE chat_jid = ? AND status != 'closed'")
+    .all(chatJid) as { id: string; title: string | null; extra: string | null }[];
+  const hit = rows.find((row) => {
+    let stored = "";
+    try {
+      stored = String((JSON.parse(row.extra || "{}") as { unit?: string }).unit || "");
+    } catch {
+      stored = "";
+    }
+    return new RegExp(`(?<!\\d)${key}(?!\\d)`).test(`${row.title || ""} ${stored}`);
+  });
+  return hit ? getCard(hit.id) : null;
+}
+
+export function openUnitNumbers(chatJid: string) {
+  const rows = getDb()
+    .prepare("SELECT id, title, extra FROM cards WHERE chat_jid = ? AND status != 'closed'")
+    .all(chatJid) as { id: string; title: string | null; extra: string | null }[];
+  return rows.flatMap((row) => {
+    let stored = "";
+    try {
+      stored = String((JSON.parse(row.extra || "{}") as { unit?: string }).unit || "");
+    } catch {
+      stored = "";
+    }
+    const key = `${row.title || ""} ${stored}`.match(/(\d{3,6})(?!.*\d)/)?.[1];
+    return key ? [{ id: row.id, key }] : [];
+  });
+}
+
+export function markSheetCoverage(chatJid: string, keys: string[]) {
+  const unique = [...new Set(keys.filter(Boolean))];
+  if (unique.length < 3) return;
+  const rows = getDb()
+    .prepare("SELECT id, title, extra FROM cards WHERE chat_jid = ? AND kind = 'listing' AND status != 'closed'")
+    .all(chatJid) as { id: string; title: string | null; extra: string | null }[];
+  const write = getDb().prepare("UPDATE cards SET extra = ?, updated_at = ? WHERE id = ?");
+  const now = Date.now();
+  for (const row of rows) {
+    let extra: CardExtra = {};
+    try {
+      extra = row.extra ? (JSON.parse(row.extra) as CardExtra) : {};
+    } catch {
+      extra = {};
+    }
+    const key = `${row.title || ""} ${extra.unit || ""}`.match(/(\d{3,6})(?!.*\d)/)?.[1];
+    if (!key) continue;
+    if (unique.includes(key)) delete extra.offSheet;
+    else extra.offSheet = now;
+    write.run(JSON.stringify(extra), now, row.id);
+  }
 }
 
 export function listCards(filters: CardFilters = {}) {
@@ -656,6 +729,10 @@ export function listCards(filters: CardFilters = {}) {
   if (filters.developerId) {
     where.push("c.supplier_id IN (SELECT id FROM suppliers WHERE company_id = ?)");
     params.push(filters.developerId);
+  }
+  if (filters.broker) {
+    where.push("c.broker = ?");
+    params.push(filters.broker);
   }
   if (filters.q?.trim()) {
     const like = `%${filters.q.trim().replace(/[%_]/g, "")}%`;
@@ -711,8 +788,47 @@ function statusFor(item: ExtractedCard) {
   return "new";
 }
 
+function withPriceLog(extraJson: string, previous: number | null, next: number | null) {
+  if (previous == null || next == null || previous === next) return extraJson;
+  let extra: CardExtra = {};
+  try {
+    extra = JSON.parse(extraJson) as CardExtra;
+  } catch {
+    extra = {};
+  }
+  const log = Array.isArray(extra.priceLog) ? extra.priceLog : [];
+  extra.priceLog = [...log, { at: Date.now(), from: previous, to: next }].slice(-8);
+  return JSON.stringify(extra);
+}
+
 function keep<T>(next: T | null | undefined, previous: T | null) {
   return next === null || next === undefined || next === "" ? previous : next;
+}
+
+function cardExtra(item: ExtractedCard, previous: string | null) {
+  let current: CardExtra = {};
+  try {
+    current = previous ? (JSON.parse(previous) as CardExtra) : {};
+  } catch {
+    current = {};
+  }
+  const details = item.details;
+  const next: CardExtra = { ...current };
+  if (details?.unit) next.unit = details.unit;
+  if (details?.floor) next.floor = details.floor;
+  if (details?.parking) next.parking = details.parking;
+  if (details?.view) next.view = details.view;
+  if (details?.furnished != null) next.furnished = details.furnished;
+  if (details?.handover) next.handover = details.handover;
+  if (details?.plot) next.plot = details.plot;
+  if (details?.planLabel) next.planLabel = details.planLabel;
+  if (details?.maid != null) next.maid = details.maid;
+  if (details?.storeys) next.storeys = details.storeys;
+  if (details?.unitCount) next.unitCount = details.unitCount;
+  if (details?.plans?.length) {
+    next.plans = details.plans.map((plan) => ({ name: plan.name, price: plan.price, rows: [] }));
+  }
+  return JSON.stringify(next);
 }
 
 export function saveExtractedCard(input: {
@@ -728,7 +844,8 @@ export function saveExtractedCard(input: {
     input.item.match_card_id && input.item.match_card_id !== "null"
       ? getCard(input.item.match_card_id)
       : null;
-  const sameChat = existing && existing.chat_jid === input.chatJid ? existing : null;
+  const matched = existing && existing.chat_jid === input.chatJid ? existing : findCardForUnit(input.chatJid, input.item.details?.unit || null);
+  const sameChat = matched && matched.chat_jid === input.chatJid ? matched : null;
   const nextStatus = statusFor(input.item);
   let cardId: string;
 
@@ -762,6 +879,7 @@ export function saveExtractedCard(input: {
       now,
       now,
     );
+    db.prepare("UPDATE cards SET extra = ? WHERE id = ?").run(cardExtra(input.item, null), cardId);
   } else {
     cardId = sameChat.id;
     const locked = ["contacted", "viewing", "offer", "closed"].includes(sameChat.status);
@@ -782,6 +900,7 @@ export function saveExtractedCard(input: {
         size_sqm = ?,
         summary = ?,
         confidence = ?,
+        extra = ?,
         status = ?,
         updated_at = ?
       WHERE id = ?`,
@@ -801,6 +920,7 @@ export function saveExtractedCard(input: {
       input.item.size_sqm ?? sameChat.size_sqm,
       input.item.summary || sameChat.summary,
       input.item.confidence,
+      withPriceLog(cardExtra(input.item, sameChat.extra), sameChat.price, input.item.price ?? sameChat.price),
       locked ? sameChat.status : nextStatus,
       now,
       sameChat.id,
@@ -965,43 +1085,43 @@ export function finishReply(id: string, status: "sent" | "failed", error: string
     .run(status, error, status === "sent" ? Date.now() : null, id);
 }
 
-export function stats() {
+export function stats(broker = "") {
   const db = getDb();
   const { start, end } = zonedDayRange(getSettings().timezone);
+  const who = broker ? " AND broker = ?" : "";
+  const mine = broker ? [broker] : [];
   const count = (sql: string, ...params: Array<string | number>) =>
     (db.prepare(sql).get(...params) as { n: number }).n;
   return {
-    newToday: count("SELECT COUNT(*) AS n FROM cards WHERE created_at >= ?", start),
-    listings: count("SELECT COUNT(*) AS n FROM cards WHERE kind = 'listing' AND status != 'closed'"),
-    inquiries: count("SELECT COUNT(*) AS n FROM cards WHERE kind = 'inquiry' AND status != 'closed'"),
-    needsReview: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'needs_review'"),
-    villas: count(
-      "SELECT COUNT(*) AS n FROM cards WHERE property_type = 'villa' AND status != 'closed'",
-    ),
-    apartments: count(
-      "SELECT COUNT(*) AS n FROM cards WHERE property_type = 'apartment' AND status != 'closed'",
-    ),
-    land: count("SELECT COUNT(*) AS n FROM cards WHERE property_type = 'land' AND status != 'closed'"),
-    viewings: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'viewing'"),
-    offers: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'offer'"),
-    fresh: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'new'"),
-    contacted: count("SELECT COUNT(*) AS n FROM cards WHERE status = 'contacted'"),
+    newToday: count(`SELECT COUNT(*) AS n FROM cards WHERE created_at >= ?${who}`, start, ...mine),
+    listings: count(`SELECT COUNT(*) AS n FROM cards WHERE kind = 'listing' AND status != 'closed'${who}`, ...mine),
+    inquiries: count(`SELECT COUNT(*) AS n FROM cards WHERE kind = 'inquiry' AND status != 'closed'${who}`, ...mine),
+    needsReview: count(`SELECT COUNT(*) AS n FROM cards WHERE status = 'needs_review'${who}`, ...mine),
+    villas: count(`SELECT COUNT(*) AS n FROM cards WHERE property_type = 'villa' AND status != 'closed'${who}`, ...mine),
+    apartments: count(`SELECT COUNT(*) AS n FROM cards WHERE property_type = 'apartment' AND status != 'closed'${who}`, ...mine),
+    land: count(`SELECT COUNT(*) AS n FROM cards WHERE property_type = 'land' AND status != 'closed'${who}`, ...mine),
+    viewings: count(`SELECT COUNT(*) AS n FROM cards WHERE status = 'viewing'${who}`, ...mine),
+    offers: count(`SELECT COUNT(*) AS n FROM cards WHERE status = 'offer'${who}`, ...mine),
+    fresh: count(`SELECT COUNT(*) AS n FROM cards WHERE status = 'new'${who}`, ...mine),
+    contacted: count(`SELECT COUNT(*) AS n FROM cards WHERE status = 'contacted'${who}`, ...mine),
     unassigned: count("SELECT COUNT(*) AS n FROM cards WHERE status != 'closed' AND (broker IS NULL OR broker = '')"),
     pendingSort: count("SELECT COUNT(*) AS n FROM messages WHERE processed = 0"),
     messages: count("SELECT COUNT(*) AS n FROM messages"),
     followUps: count(
-      "SELECT COUNT(*) AS n FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ?",
+      `SELECT COUNT(*) AS n FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ?${who}`,
       end,
+      ...mine,
     ),
     failedReplies: count("SELECT COUNT(*) AS n FROM outbox WHERE status = 'failed'"),
   };
 }
 
-export function dueFollowUps(limit = 5) {
+export function dueFollowUps(limit = 8, broker = "") {
   const { end } = zonedDayRange(getSettings().timezone);
+  const who = broker ? " AND broker = ?" : "";
   return getDb()
     .prepare(
-      "SELECT id, kind, title, next_follow_up FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ? ORDER BY next_follow_up ASC LIMIT ?",
+      `SELECT id, kind, title, broker, next_follow_up FROM cards WHERE status != 'closed' AND next_follow_up IS NOT NULL AND next_follow_up <= ?${who} ORDER BY next_follow_up ASC LIMIT ?`,
     )
-    .all(end, limit) as Array<{ id: string; kind: string; title: string | null; next_follow_up: number }>;
+    .all(...(broker ? [end, broker, limit] : [end, limit])) as Array<{ id: string; kind: string; title: string | null; broker: string | null; next_follow_up: number }>;
 }

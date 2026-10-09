@@ -5,12 +5,11 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { useEffect, useRef, useState } from "react";
 import { Attachment } from "@/components/attachment";
 import { ReplyBox } from "@/components/reply-box";
-import { WhatsAppLink } from "@/components/whatsapp-link";
 import { DetailsForm } from "@/components/details-form";
 import { Icon, IconBadge } from "@/components/icons";
 import { PaymentPlans } from "@/components/payment-plans";
 import { PropertyShowcase } from "@/components/property-showcase";
-import { dealFacts, propertyFacts } from "@/lib/facts";
+import { askForGaps, dealFacts, propertyFacts, reviewReasons } from "@/lib/facts";
 import { useDeskPrefs } from "@/components/shell";
 import { PIPELINE, deskZone, formatPrice, formatWhen, statusLabel } from "@/lib/format";
 import type { CardExtra, CardRow, FollowUp, MessageRow, SupplierRow } from "@/lib/types";
@@ -169,31 +168,63 @@ export default function PropertyDetailPage() {
         {clientRecord ? "All clients" : "All properties"}
       </Link>
       <div className="mt-4">
-        <PropertyShowcase card={card} files={gallery} supplier={supplier} />
+        <PropertyShowcase
+          card={card}
+          files={gallery}
+          supplier={supplier}
+          sources={[...new Map(messages.filter((message) => message.media_file?.endsWith(".pdf")).map((message) => [message.media_file, { file: message.media_file as string, name: "Source PDF" }])).values()]}
+        />
       </div>
+      <section className="mt-4 desk-card rounded-2xl border border-line bg-panel p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" title="Edit" aria-label="Edit" onClick={() => setEditSignal((value) => value + 1)} className="grid h-9 w-9 place-items-center rounded-full border border-line bg-paper text-pine">
+            <Icon name="pencil" className="h-4 w-4" />
+          </button>
+          <button type="button" title="Delete" aria-label="Delete" onClick={() => void removeRecord()} className="grid h-9 w-9 place-items-center rounded-full border border-line bg-paper text-clay">
+            <Icon name="trash" className="h-4 w-4" />
+          </button>
+          <a href={`/api/reports/property/${card.id}`} className="rounded-xl border border-line bg-paper px-3 py-2 text-sm font-medium">
+            Download PDF
+          </a>
+          <span className="mx-1 hidden h-6 w-px bg-line sm:block" />
+          <span className="text-xs font-medium uppercase tracking-wide text-muted">Status</span>
+          {PIPELINE.map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatus(status)}
+              className={`rounded-xl px-3 py-2 text-sm ${card.status === status ? "bg-pine text-white" : "border border-line bg-paper"}`}
+            >
+              {statusLabel(status)}
+            </button>
+          ))}
+        </div>
+      </section>
       <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.75fr)]">
         <div className="min-w-0">
+          {card.status === "needs_review" ? (
+            <div className="mb-4 rounded-2xl border border-line bg-panel px-4 py-3">
+              <p className="text-sm font-medium">Why this is not approved</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-muted">
+                {reviewReasons(card).map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {card.summary ? <p className="max-w-3xl text-sm leading-6 text-muted">{card.summary}</p> : null}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button type="button" title="Edit" aria-label="Edit" onClick={() => setEditSignal((value) => value + 1)} className="grid h-9 w-9 place-items-center rounded-full border border-line bg-panel text-pine">
-              <Icon name="pencil" className="h-4 w-4" />
-            </button>
-            <button type="button" title="Delete" aria-label="Delete" onClick={() => void removeRecord()} className="grid h-9 w-9 place-items-center rounded-full border border-line bg-panel text-clay">
-              <Icon name="trash" className="h-4 w-4" />
-            </button>
-            <a href={`/api/reports/property/${card.id}`} className="rounded-xl bg-pine px-3 py-2 text-sm font-medium text-white">
-              Download PDF
-            </a>
-            {PIPELINE.map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatus(status)}
-                className={`rounded-xl px-3 py-2 text-sm ${card.status === status ? "bg-pine text-white" : "border border-line bg-panel"}`}
-              >
-                {statusLabel(status)}
-              </button>
-            ))}
-          </div>
+          {askForGaps(card, messages.some((message) => /[\u0600-\u06FF]/.test(message.body || ""))) ? (
+            <section className="mt-4 desk-card rounded-2xl border border-line bg-panel p-5">
+              <h2 className="font-semibold">Ask for what is missing</h2>
+              <p className="mt-1 text-sm text-muted">This stays here until you press Send. Nothing goes out by itself.</p>
+              <div className="mt-3">
+                <ReplyBox
+                  chatJid={card.chat_jid}
+                  cardId={card.id}
+                  initialText={askForGaps(card, messages.some((message) => /[\u0600-\u06FF]/.test(message.body || "")))}
+                />
+              </div>
+            </section>
+          ) : null}
           <DetailsForm key={`${card.updated_at}-${supplier?.name || ""}-${supplier?.company_name || ""}`} card={card} supplier={supplier} openSignal={editSignal} onSaved={() => void load()} />
           <PaymentPlans plans={plans} />
           <section className="mt-6">
@@ -247,15 +278,14 @@ export default function PropertyDetailPage() {
           ) : null}
         </div>
         <div className="min-w-0 space-y-4">
-          <section className="desk-card rounded-2xl border border-line bg-panel p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">Contact</h2>
-              <WhatsAppLink phone={card.sender_phone} label={card.sender_phone || undefined} />
-            </div>
-            <div className="mt-4">
-              <ReplyBox chatJid={card.chat_jid} cardId={card.id} />
-            </div>
-          </section>
+          {askForGaps(card, false) ? null : (
+            <section className="desk-card rounded-2xl border border-line bg-panel p-5">
+              <h2 className="font-semibold">Reply</h2>
+              <div className="mt-4">
+                <ReplyBox chatJid={card.chat_jid} cardId={card.id} />
+              </div>
+            </section>
+          )}
           <section className="desk-card rounded-2xl border border-line bg-panel p-5">
             <h2 className="font-semibold">Follow-up</h2>
             <div className="mt-4 grid gap-3">

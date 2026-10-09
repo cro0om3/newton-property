@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import { useDeskPrefs } from "@/components/shell";
+import { useDeskPrefs, useViewer } from "@/components/shell";
 
 type Alert = { id: string; title: string; body: string; href: string };
 
@@ -35,6 +35,7 @@ export function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
   const office = useDeskPrefs();
+  const { viewer, setViewer } = useViewer();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [connected, setConnected] = useState(false);
   const [phone, setPhone] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export function TopBar() {
   useEffect(() => {
     let stop = false;
     async function load() {
-      const response = await fetch("/api/stats");
+      const response = await fetch(viewer ? `/api/stats?assignee=${encodeURIComponent(viewer)}` : "/api/stats");
       if (!response.ok || stop) return;
       const body = await response.json();
       setAlerts(body.alerts || []);
@@ -62,7 +63,7 @@ export function TopBar() {
       stop = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [viewer]);
 
   useEffect(() => {
     function onPointer(event: MouseEvent) {
@@ -138,15 +139,26 @@ export function TopBar() {
             type="button"
             aria-label="Account"
             onClick={() => toggle("account")}
-            className="grid h-9 w-9 place-items-center rounded-full bg-pine text-xs font-semibold text-white"
+            className="grid h-9 min-w-9 place-items-center rounded-full bg-pine px-2 text-xs font-semibold text-white"
           >
-            N
+            {viewer ? viewer.slice(0, 1).toUpperCase() : "All"}
           </button>
           {open === "account" ? (
             <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_16px_40px_rgba(7,24,51,0.12)]">
               <div className="px-4 py-3">
                 <p className="text-sm font-semibold">{office.officeName}</p>
-                <p className="text-xs text-muted">Signed in on this computer</p>
+                <p className="text-xs text-muted">{viewer ? viewer : "Owner sees the whole office"}</p>
+              </div>
+              <div className="border-t border-line px-2 py-2">
+                <button type="button" onClick={() => { setViewer(""); setOpen(null); }} className={`block w-full rounded-xl px-2 py-2 text-left text-sm ${viewer ? "hover:bg-paper" : "bg-sand font-medium"}`}>
+                  Owner
+                </button>
+                {office.brokers.map((name) => (
+                  <button key={name} type="button" onClick={() => { setViewer(name); setOpen(null); }} className={`block w-full rounded-xl px-2 py-2 text-left text-sm ${viewer === name ? "bg-sand font-medium" : "hover:bg-paper"}`}>
+                    {name}
+                  </button>
+                ))}
+                {office.brokers.length === 0 ? <p className="px-2 py-2 text-xs text-muted">Add broker names in Settings to split the desk.</p> : null}
               </div>
               <Link href="/settings" onClick={() => setOpen(null)} className="block border-t border-line px-4 py-3 text-sm font-medium text-pine hover:bg-paper">
                 Settings

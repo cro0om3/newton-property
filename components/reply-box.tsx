@@ -1,14 +1,22 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 
-export function ReplyBox({ chatJid, cardId, compact = false }: { chatJid: string | null; cardId?: string; compact?: boolean }) {
+export function ReplyBox({ chatJid, cardId, compact = false, initialText = "" }: { chatJid: string | null; cardId?: string; compact?: boolean; initialText?: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const filled = useRef(false);
+
+  useEffect(() => {
+    if (filled.current || !initialText) return;
+    filled.current = true;
+    setText(initialText);
+    setNote("The list shows what we have and what is still missing. Edit it, then send.");
+  }, [initialText]);
 
   if (!chatJid || chatJid === "desk") {
     return <p className="text-sm text-muted">This record is not linked to a WhatsApp chat.</p>;

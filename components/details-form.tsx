@@ -23,7 +23,13 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 
 export function DetailsForm({ card, supplier, onSaved, openSignal = 0 }: { card: CardRow; supplier: SupplierRow | null; onSaved: () => void; openSignal?: number }) {
   const extra = extraOf(card);
-  const land = card.property_type === "land";
+  const type = card.property_type;
+  const land = type === "land";
+  const villa = type === "villa" || type === "townhouse";
+  const office = type === "office";
+  const warehouse = type === "warehouse";
+  const building = type === "building";
+  const rooms = type === "apartment" || villa || !type;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [developers, setDevelopers] = useState<string[]>([]);
@@ -42,6 +48,10 @@ export function DetailsForm({ card, supplier, onSaved, openSignal = 0 }: { card:
     parking: extra.parking || "",
     view: extra.view || "",
     plot: extra.plot || "",
+    furnished: extra.furnished == null ? "" : extra.furnished ? "yes" : "no",
+    maid: extra.maid == null ? "" : extra.maid ? "yes" : "no",
+    storeys: extra.storeys || "",
+    unitCount: extra.unitCount || "",
     supplierName: supplier?.name || card.sender_name || "",
     companyName: supplier?.company_name || "",
   });
@@ -81,17 +91,21 @@ export function DetailsForm({ card, supplier, onSaved, openSignal = 0 }: { card:
           city: form.city || null,
           area: form.area || null,
           price: number(form.price),
-          bedrooms: land ? null : number(form.bedrooms),
-          bathrooms: land ? null : number(form.bathrooms),
+          bedrooms: rooms ? number(form.bedrooms) : undefined,
+          bathrooms: rooms ? number(form.bathrooms) : undefined,
           sizeSqm: number(form.size),
           extra: {
-            handover: form.handover || null,
+            handover: rooms ? form.handover || null : extra.handover,
             planLabel: form.planLabel || null,
-            floor: form.floor || null,
-            unit: form.unit || null,
+            floor: type === "apartment" || office ? form.floor || null : extra.floor,
+            unit: type === "apartment" || !type ? form.unit || null : extra.unit,
             parking: form.parking || null,
-            view: form.view || null,
-            plot: form.plot || null,
+            view: rooms ? form.view || null : extra.view,
+            plot: land || villa || building ? form.plot || null : extra.plot,
+            furnished: office ? (form.furnished === "" ? null : form.furnished === "yes") : extra.furnished,
+            maid: rooms ? (form.maid === "" ? null : form.maid === "yes") : extra.maid,
+            storeys: building ? form.storeys || null : extra.storeys,
+            unitCount: building ? form.unitCount || null : extra.unitCount,
           },
         },
       }),
@@ -118,16 +132,38 @@ export function DetailsForm({ card, supplier, onSaved, openSignal = 0 }: { card:
           <Field label="Price (AED)" value={form.price} onChange={(value) => set("price", value)} />
           <Field label="City" value={form.city} onChange={(value) => set("city", value)} />
           <Field label="Area" value={form.area} onChange={(value) => set("area", value)} />
-          {land ? null : <Field label="Bedrooms" value={form.bedrooms} onChange={(value) => set("bedrooms", value)} />}
-          {land ? null : <Field label="Bathrooms" value={form.bathrooms} onChange={(value) => set("bathrooms", value)} />}
-          <Field label={land ? "Plot (sqm)" : "Size (sqm)"} value={form.size} onChange={(value) => set("size", value)} />
-          <Field label="Handover" value={form.handover} onChange={(value) => set("handover", value)} />
+          {rooms ? <Field label="Bedrooms" value={form.bedrooms} onChange={(value) => set("bedrooms", value)} /> : null}
+          {rooms ? <Field label="Bathrooms" value={form.bathrooms} onChange={(value) => set("bathrooms", value)} /> : null}
+          {rooms ? (
+            <label className="block text-sm">
+              <span className="text-muted">Maid's room</span>
+              <select value={form.maid} onChange={(event) => set("maid", event.target.value)} className="mt-1 w-full rounded-xl border border-line bg-panel px-3 py-2">
+                <option value="">Not stated</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          ) : null}
+          <Field label={land ? "Plot (sqm)" : villa || building ? "Built-up (sqm)" : "Size (sqm)"} value={form.size} onChange={(value) => set("size", value)} />
+          {land || villa || building ? <Field label="Plot size" value={form.plot} onChange={(value) => set("plot", value)} /> : null}
+          {rooms ? <Field label="Handover" value={form.handover} onChange={(value) => set("handover", value)} /> : null}
           <Field label="Payment plan" value={form.planLabel} onChange={(value) => set("planLabel", value)} />
-          {land ? null : <Field label="Floor" value={form.floor} onChange={(value) => set("floor", value)} />}
-          {land ? null : <Field label="Unit" value={form.unit} onChange={(value) => set("unit", value)} />}
-          <Field label="Parking" value={form.parking} onChange={(value) => set("parking", value)} />
-          <Field label="View" value={form.view} onChange={(value) => set("view", value)} />
-          <Field label="Plot size" value={form.plot} onChange={(value) => set("plot", value)} />
+          {type === "apartment" || office ? <Field label="Floor" value={form.floor} onChange={(value) => set("floor", value)} /> : null}
+          {type === "apartment" || !type ? <Field label="Unit" value={form.unit} onChange={(value) => set("unit", value)} /> : null}
+          {building ? <Field label="Number of floors" value={form.storeys} onChange={(value) => set("storeys", value)} /> : null}
+          {building ? <Field label="Number of units" value={form.unitCount} onChange={(value) => set("unitCount", value)} /> : null}
+          {warehouse || land ? null : <Field label="Parking" value={form.parking} onChange={(value) => set("parking", value)} />}
+          {rooms ? <Field label="View" value={form.view} onChange={(value) => set("view", value)} /> : null}
+          {office ? (
+            <label className="block text-sm">
+              <span className="text-muted">Furnished</span>
+              <select value={form.furnished} onChange={(event) => set("furnished", event.target.value)} className="mt-1 w-full rounded-xl border border-line bg-panel px-3 py-2">
+                <option value="">Not stated</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          ) : null}
           <Field label={card.kind === "inquiry" ? "Client name" : "Employee"} value={form.supplierName} onChange={(value) => set("supplierName", value)} />
           <label className="block text-sm">
             <span className="text-muted">Developer</span>

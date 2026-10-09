@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PropertyCard } from "@/components/property-card";
+import { useViewer } from "@/components/shell";
 import type { CardRow } from "@/lib/types";
 
 const TYPES = ["villa", "apartment", "land", "office", "warehouse", "townhouse", "building", "other"];
 
 export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
   const router = useRouter();
+  const { viewer } = useViewer();
   const params = useSearchParams();
   const listing = kind === "listing";
   const [propertyType, setPropertyType] = useState(params.get("type") || "");
@@ -40,8 +42,9 @@ export function RecordList({ kind }: { kind: "listing" | "inquiry" }) {
     if (q.trim()) search.set("q", q.trim());
     if (supplierId) search.set("supplier", supplierId);
     if (developerId) search.set("developer", developerId);
+    if (viewer) search.set("assignee", viewer);
     return search.toString();
-  }, [kind, propertyType, purpose, status, q, supplierId, developerId]);
+  }, [kind, propertyType, purpose, status, q, supplierId, developerId, viewer]);
 
   useEffect(() => {
     void fetch("/api/settings")

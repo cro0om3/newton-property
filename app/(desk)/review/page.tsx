@@ -3,14 +3,20 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PropertyCard } from "@/components/property-card";
+import { useViewer } from "@/components/shell";
+import { reviewReasons } from "@/lib/facts";
 import type { CardRow } from "@/lib/types";
 
+type ReviewCard = CardRow & { sources?: { file: string; name: string }[] };
+
 export default function ReviewPage() {
-  const [cards, setCards] = useState<CardRow[] | null>(null);
+  const { viewer } = useViewer();
+  const [cards, setCards] = useState<ReviewCard[] | null>(null);
   const [pending, setPending] = useState(0);
 
   async function load() {
-    const [cardsResponse, statsResponse] = await Promise.all([fetch("/api/cards"), fetch("/api/stats")]);
+    const assignee = viewer ? `?assignee=${encodeURIComponent(viewer)}` : "";
+    const [cardsResponse, statsResponse] = await Promise.all([fetch(`/api/cards${assignee}`), fetch(`/api/stats${assignee}`)]);
     if (cardsResponse.ok) {
       const body = await cardsResponse.json();
       setCards(body.cards || []);
@@ -25,7 +31,7 @@ export default function ReviewPage() {
     void load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [viewer]);
 
   async function setStatus(id: string, status: string) {
     await fetch(`/api/cards/${id}`, {
@@ -60,6 +66,23 @@ export default function ReviewPage() {
           {review.map((card) => (
             <div key={card.id}>
               <PropertyCard card={card} onDeleted={() => setCards((current) => (current || []).filter((item) => item.id !== card.id))} />
+              <div className="mt-2 rounded-2xl border border-line bg-panel px-4 py-3">
+                <p className="text-sm font-medium">Why this is not approved</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-muted">
+                  {reviewReasons(card).map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+                {card.sources?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[...new Map(card.sources.map((source) => [source.file, source])).values()].map((source) => (
+                      <a key={source.file} href={`/api/media/${source.file}`} target="_blank" rel="noreferrer" className="rounded-xl bg-sand px-3 py-2 text-sm font-medium text-pine">
+                        Open source PDF
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <div className="mt-2 flex gap-2">
                 <button onClick={() => setStatus(card.id, "new")} className="rounded-xl bg-pine px-3 py-2 text-sm text-white">
                   Approve

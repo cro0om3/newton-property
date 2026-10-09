@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { hasOpenAiKey } from "./analyze";
+import { askForGaps, missingLabels } from "./facts";
 import { secretValue } from "./env-file";
 import { getSettings } from "./settings";
 import { formatPrice } from "./format";
@@ -32,6 +33,9 @@ export async function draftReply(card: CardRow | null, messages: MessageRow[]) {
     .slice(-8)
     .map((message) => `${message.from_me ? "Broker" : "Customer"}: ${(message.body || "").slice(0, 500)}`)
     .join("\n");
+  if (card && missingLabels(card).length) {
+    return { text: askForGaps(card, /[\u0600-\u06FF]/.test(recent)), source: "desk" as const };
+  }
   if (!hasOpenAiKey()) {
     return { text: localDraft(card, recent), source: "desk" as const };
   }
